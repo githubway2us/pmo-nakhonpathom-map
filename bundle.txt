@@ -1,0 +1,997 @@
+===== FILE: package.json =====
+{
+  "name": "pmo-nakhonpathom-map",
+  "version": "1.0.0",
+  "description": "ระบบบันทึกพิกัดผู้ประสบปัญหาทางสังคม สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^9.6.0",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.5"
+  }
+}
+
+===== FILE: server.js =====
+const express = require('express');
+const http = require('http');
+const path = require('path');
+const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
+const multer = require('multer');
+const Database = require('better-sqlite3');
+const { Server } = require('socket.io');
+
+const PORT = process.env.PORT || 3000;
+const SECRET = process.env.JWT_SECRET || 'nkp-pmo-change-this-secret';
+const PROD = process.env.NODE_ENV === 'production';
+
+const app = express();
+app.set('trust proxy', 1);
+const server = http.createServer(app);
+const io = new Server(server);
+
+/* ---------- เตรียมโฟลเดอร์ + ฐานข้อมูล ---------- */
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const db = new Database(path.join(__dirname, 'data.db'));
+db.pragma('journal_mode = WAL');
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  first_name TEXT, last_name TEXT, nickname TEXT,
+  affiliation TEXT, affiliation_other TEXT,
+  phone TEXT,
+  avatar TEXT,
+  facebook TEXT, tiktok TEXT, line_id TEXT, website TEXT,
+  role TEXT NOT NULL DEFAULT 'user',
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+);
+CREATE TABLE IF NOT EXISTS points (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  lat REAL NOT NULL, lng REAL NOT NULL,
+  case_name TEXT NOT NULL,
+  case_type TEXT NOT NULL, case_type_other TEXT,
+  caretaker_name TEXT, caretaker_phone TEXT,
+  address TEXT, note TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  reject_reason TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  FOREIGN KEY(user_id) REFERENCES users(id)
+);
+CREATE TABLE IF NOT EXISTS point_photos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  point_id INTEGER NOT NULL,
+  file TEXT NOT NULL,
+  FOREIGN KEY(point_id) REFERENCES points(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_points_status ON points(status);
+CREATE INDEX IF NOT EXISTS idx_points_user ON points(user_id);
+`);
+
+// สร้างแอดมินเริ่มต้น: admin / admin123
+if (!db.prepare('SELECT 1 FROM users WHERE username=?').get('admin')) {
+  db.prepare(`INSERT INTO users (username,password,first_name,last_name,nickname,
+    affiliation,phone,role,status) VALUES (?,?,?,?,?,?,?,'admin','approved')`)
+    .run('admin', bcrypt.hashSync('admin123', 10), 'ผู้ดูแล', 'ระบบ', 'แอดมิน', 'เจ้าหน้าที่', '-');
+  console.log('>> สร้างแอดมินเริ่มต้น  username: admin  password: admin123  (กรุณาเปลี่ยนรหัสทันที)');
+}
+
+/* ---------- Middleware ---------- */
+app.use(express.json());
+app.use(cookieParser());
+app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+const storage = multer.diskStorage({
+  destination: (_, __, cb) => cb(null, UPLOAD_DIR),
+  filename: (_, file, cb) =>
+    cb(null, Date.now() + '-' + Math.round(Math.random() * 1e9) + path.extname(file.originalname).toLowerCase())
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_, file, cb) => cb(null, /^image\//.test(file.mimetype))
+});
+
+function sign(u) { return jwt.sign({ id: u.id, role: u.role }, SECRET, { expiresIn: '30d' }); }
+
+function auth(req, res, next) {
+  const t = req.cookies.token;
+  if (!t) return res.status(401).json({ error: 'กรุณาเข้าสู่ระบบ' });
+  try {
+    const p = jwt.verify(t, SECRET);
+    const u = db.prepare('SELECT * FROM users WHERE id=?').get(p.id);
+    if (!u) return res.status(401).json({ error: 'ไม่พบผู้ใช้' });
+    req.user = u; next();
+  } catch { res.status(401).json({ error: 'เซสชันหมดอายุ' }); }
+}
+const approved = (req, res, next) =>
+  req.user.status === 'approved' ? next() : res.status(403).json({ error: 'บัญชียังไม่ได้รับการอนุมัติ' });
+const adminOnly = (req, res, next) =>
+  req.user.role === 'admin' ? next() : res.status(403).json({ error: 'เฉพาะผู้ดูแลระบบ' });
+
+const safeUser = u => ({
+  id: u.id, username: u.username, firstName: u.first_name, lastName: u.last_name,
+  nickname: u.nickname, affiliation: u.affiliation, affiliationOther: u.affiliation_other,
+  phone: u.phone, avatar: u.avatar, facebook: u.facebook, tiktok: u.tiktok,
+  lineId: u.line_id, website: u.website, role: u.role, status: u.status, createdAt: u.created_at
+});
+
+function removeFile(rel) {
+  if (!rel) return;
+  const f = path.join(__dirname, rel.replace(/^\//, ''));
+  if (f.startsWith(UPLOAD_DIR)) fs.unlink(f, () => {});
+}
+
+/* ---------- Auth ---------- */
+app.post('/api/register', upload.single('avatar'), (req, res) => {
+  const b = req.body;
+  if (!b.username || !b.password || !b.first_name || !b.last_name || !b.phone || !b.affiliation)
+    return res.status(400).json({ error: 'กรอกข้อมูลที่จำเป็นให้ครบ' });
+  if (String(b.password).length < 6)
+    return res.status(400).json({ error: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' });
+  if (db.prepare('SELECT 1 FROM users WHERE username=?').get(b.username))
+    return res.status(409).json({ error: 'ชื่อผู้ใช้นี้ถูกใช้แล้ว' });
+
+  db.prepare(`INSERT INTO users (username,password,first_name,last_name,nickname,
+    affiliation,affiliation_other,phone,avatar,facebook,tiktok,line_id,website)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    b.username, bcrypt.hashSync(b.password, 10), b.first_name, b.last_name, b.nickname || '',
+    b.affiliation, b.affiliation_other || '', b.phone,
+    req.file ? '/uploads/' + req.file.filename : null,
+    b.facebook || '', b.tiktok || '', b.line_id || '', b.website || ''
+  );
+  io.to('admins').emit('user:pending');
+  res.json({ ok: true, message: 'สมัครสำเร็จ รอผู้ดูแลระบบอนุมัติบัญชี' });
+});
+
+// จำกัดจำนวนครั้งการล็อกอินที่ผิด (กันเดารหัสผ่าน)
+const loginTries = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of loginTries) if (now - v.at > 30 * 60000) loginTries.delete(k);
+}, 10 * 60000).unref();
+
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body || {};
+  const key = req.ip + '|' + (username || '');
+  const t = loginTries.get(key) || { n: 0, at: 0 };
+  if (t.n >= 8 && Date.now() - t.at < 10 * 60000)
+    return res.status(429).json({ error: 'พยายามเข้าสู่ระบบบ่อยเกินไป กรุณาลองใหม่ใน 10 นาที' });
+
+  const u = db.prepare('SELECT * FROM users WHERE username=?').get(username || '');
+  if (!u || !bcrypt.compareSync(password || '', u.password)) {
+    loginTries.set(key, { n: t.n + 1, at: Date.now() });
+    return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+  }
+  if (u.status === 'pending') return res.status(403).json({ error: 'บัญชีรออนุมัติจากผู้ดูแลระบบ' });
+  if (u.status === 'rejected') return res.status(403).json({ error: 'บัญชีถูกปฏิเสธ กรุณาติดต่อผู้ดูแล' });
+
+  loginTries.delete(key);
+  res.cookie('token', sign(u), {
+    httpOnly: true, sameSite: 'lax', secure: PROD, maxAge: 30 * 864e5
+  });
+  res.json({ ok: true, user: safeUser(u) });
+});
+
+app.post('/api/logout', (_, res) => { res.clearCookie('token'); res.json({ ok: true }); });
+app.get('/api/me', auth, (req, res) => res.json(safeUser(req.user)));
+
+app.put('/api/profile', auth, upload.single('avatar'), (req, res) => {
+  const b = req.body, u = req.user;
+  let avatar = u.avatar;
+  if (req.file) { removeFile(u.avatar); avatar = '/uploads/' + req.file.filename; }
+  db.prepare(`UPDATE users SET first_name=?,last_name=?,nickname=?,affiliation=?,
+    affiliation_other=?,phone=?,avatar=?,facebook=?,tiktok=?,line_id=?,website=? WHERE id=?`).run(
+    b.first_name || u.first_name, b.last_name || u.last_name, b.nickname ?? u.nickname,
+    b.affiliation || u.affiliation, b.affiliation_other ?? u.affiliation_other,
+    b.phone || u.phone, avatar, b.facebook ?? u.facebook, b.tiktok ?? u.tiktok,
+    b.line_id ?? u.line_id, b.website ?? u.website, u.id);
+  if (b.password) {
+    if (String(b.password).length < 6)
+      return res.status(400).json({ error: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร' });
+    db.prepare('UPDATE users SET password=? WHERE id=?').run(bcrypt.hashSync(b.password, 10), u.id);
+  }
+  res.json({ ok: true, user: safeUser(db.prepare('SELECT * FROM users WHERE id=?').get(u.id)) });
+});
+
+/* ---------- Points ---------- */
+const pointRow = `SELECT p.*, u.first_name, u.last_name, u.nickname, u.affiliation,
+  u.affiliation_other, u.phone AS reporter_phone, u.avatar FROM points p JOIN users u ON u.id=p.user_id`;
+
+function shape(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    reporterId: r.user_id,
+    lat: r.lat, lng: r.lng, caseName: r.case_name,
+    caseType: r.case_type, caseTypeOther: r.case_type_other,
+    caretakerName: r.caretaker_name, caretakerPhone: r.caretaker_phone,
+    address: r.address, note: r.note, status: r.status, rejectReason: r.reject_reason,
+    createdAt: r.created_at,
+    reporter: {
+      name: `${r.first_name} ${r.last_name}` + (r.nickname ? ` (${r.nickname})` : ''),
+      affiliation: r.affiliation === 'อื่นๆ' ? r.affiliation_other : r.affiliation,
+      phone: r.reporter_phone, avatar: r.avatar
+    },
+    photos: db.prepare('SELECT file FROM point_photos WHERE point_id=?').all(r.id).map(x => x.file)
+  };
+}
+
+app.get('/api/points', auth, approved, (req, res) => {
+  const rows = db.prepare(`${pointRow} WHERE p.status='approved' OR p.user_id=? ORDER BY p.id DESC`).all(req.user.id);
+  res.json(rows.map(shape));
+});
+
+app.get('/api/points/:id', auth, approved, (req, res) => {
+  const r = db.prepare(`${pointRow} WHERE p.id=?`).get(req.params.id);
+  if (!r) return res.status(404).json({ error: 'ไม่พบข้อมูล' });
+  if (r.status !== 'approved' && r.user_id !== req.user.id && req.user.role !== 'admin')
+    return res.status(403).json({ error: 'ไม่มีสิทธิ์' });
+  res.json(shape(r));
+});
+
+app.post('/api/points', auth, approved, upload.array('photos', 6), (req, res) => {
+  const b = req.body;
+  const lat = parseFloat(b.lat), lng = parseFloat(b.lng);
+  if (Number.isNaN(lat) || Number.isNaN(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180)
+    return res.status(400).json({ error: 'พิกัดไม่ถูกต้อง' });
+  if (!b.case_name || !b.case_type) return res.status(400).json({ error: 'กรอกชื่อเคสและลักษณะเคส' });
+
+  const info = db.prepare(`INSERT INTO points (user_id,lat,lng,case_name,case_type,case_type_other,
+    caretaker_name,caretaker_phone,address,note) VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+    req.user.id, lat, lng, b.case_name, b.case_type, b.case_type_other || '',
+    b.caretaker_name || '', b.caretaker_phone || '', b.address || '', b.note || '');
+
+  const ins = db.prepare('INSERT INTO point_photos (point_id,file) VALUES (?,?)');
+  (req.files || []).forEach(f => ins.run(info.lastInsertRowid, '/uploads/' + f.filename));
+
+  const point = shape(db.prepare(`${pointRow} WHERE p.id=?`).get(info.lastInsertRowid));
+  io.to('admins').emit('point:pending', point);
+  io.to('user:' + req.user.id).emit('point:mine', point);
+  res.json({ ok: true, message: 'บันทึกพิกัดสำเร็จ รอผู้ดูแลระบบอนุมัติ', point });
+});
+
+/* ---------- หลังบ้านแอดมิน ---------- */
+app.get('/api/admin/stats', auth, adminOnly, (_, res) => {
+  const g = q => db.prepare(q).get().c;
+  res.json({
+    pendingUsers: g("SELECT COUNT(*) c FROM users WHERE status='pending'"),
+    approvedUsers: g("SELECT COUNT(*) c FROM users WHERE status='approved'"),
+    pendingPoints: g("SELECT COUNT(*) c FROM points WHERE status='pending'"),
+    approvedPoints: g("SELECT COUNT(*) c FROM points WHERE status='approved'")
+  });
+});
+
+app.get('/api/admin/users', auth, adminOnly, (req, res) => {
+  const s = req.query.status;
+  const rows = s ? db.prepare('SELECT * FROM users WHERE status=? ORDER BY id DESC').all(s)
+                 : db.prepare('SELECT * FROM users ORDER BY id DESC').all();
+  res.json(rows.map(safeUser));
+});
+
+app.post('/api/admin/users/:id/status', auth, adminOnly, (req, res) => {
+  const { status } = req.body;
+  if (!['approved', 'rejected', 'pending'].includes(status))
+    return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
+  const u = db.prepare('SELECT id,role FROM users WHERE id=?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'ไม่พบสมาชิกนี้' });
+  if (u.role === 'admin' && status !== 'approved')
+    return res.status(400).json({ error: 'ไม่สามารถระงับบัญชีผู้ดูแลระบบได้' });
+  db.prepare('UPDATE users SET status=? WHERE id=?').run(status, u.id);
+  io.to('user:' + u.id).emit('user:status', { status });
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/users/:id', auth, adminOnly, (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: 'ลบบัญชีตัวเองไม่ได้' });
+  const u = db.prepare('SELECT id,avatar FROM users WHERE id=?').get(id);
+  if (!u) return res.status(404).json({ error: 'ไม่พบสมาชิกนี้' });
+
+  const pts = db.prepare('SELECT id FROM points WHERE user_id=?').all(id);
+  const photos = db.prepare(`SELECT ph.file FROM point_photos ph
+    JOIN points p ON p.id=ph.point_id WHERE p.user_id=?`).all(id);
+
+  const tx = db.transaction(uid => {
+    db.prepare(`DELETE FROM point_photos WHERE point_id IN (SELECT id FROM points WHERE user_id=?)`).run(uid);
+    db.prepare('DELETE FROM points WHERE user_id=?').run(uid);
+    db.prepare('DELETE FROM users WHERE id=?').run(uid);
+  });
+  tx(id);
+
+  photos.forEach(p => removeFile(p.file));
+  removeFile(u.avatar);
+  pts.forEach(p => io.emit('point:removed', { id: p.id }));
+  io.to('user:' + id).emit('user:status', { status: 'rejected' });
+  res.json({ ok: true, removedPoints: pts.length });
+});
+
+app.get('/api/admin/points', auth, adminOnly, (req, res) => {
+  const s = req.query.status;
+  const rows = s ? db.prepare(`${pointRow} WHERE p.status=? ORDER BY p.id DESC`).all(s)
+                 : db.prepare(`${pointRow} ORDER BY p.id DESC`).all();
+  res.json(rows.map(shape));
+});
+
+app.post('/api/admin/points/:id/status', auth, adminOnly, (req, res) => {
+  const { status, reason } = req.body;
+  if (!['approved', 'rejected', 'pending'].includes(status))
+    return res.status(400).json({ error: 'สถานะไม่ถูกต้อง' });
+  const exists = db.prepare('SELECT 1 FROM points WHERE id=?').get(req.params.id);
+  if (!exists) return res.status(404).json({ error: 'ไม่พบพิกัดนี้' });
+
+  db.prepare('UPDATE points SET status=?, reject_reason=? WHERE id=?')
+    .run(status, reason || '', req.params.id);
+  const point = shape(db.prepare(`${pointRow} WHERE p.id=?`).get(req.params.id));
+
+  if (status === 'approved') io.emit('point:approved', point);
+  else io.emit('point:removed', { id: point.id });
+  io.to('user:' + point.reporterId).emit('point:mine', point);
+  res.json({ ok: true, point });
+});
+
+app.delete('/api/admin/points/:id', auth, adminOnly, (req, res) => {
+  const id = Number(req.params.id);
+  const exists = db.prepare('SELECT 1 FROM points WHERE id=?').get(id);
+  if (!exists) return res.status(404).json({ error: 'ไม่พบพิกัดนี้' });
+  const photos = db.prepare('SELECT file FROM point_photos WHERE point_id=?').all(id);
+  db.prepare('DELETE FROM point_photos WHERE point_id=?').run(id);
+  db.prepare('DELETE FROM points WHERE id=?').run(id);
+  photos.forEach(p => removeFile(p.file));
+  io.emit('point:removed', { id });
+  res.json({ ok: true });
+});
+
+/* ---------- Socket.IO (เรียลไทม์) ---------- */
+io.on('connection', socket => {
+  const m = (socket.handshake.headers.cookie || '').match(/token=([^;]+)/);
+  if (!m) return socket.disconnect(true);
+  try {
+    const p = jwt.verify(decodeURIComponent(m[1]), SECRET);
+    const u = db.prepare('SELECT role,status FROM users WHERE id=?').get(p.id);
+    if (!u || u.status !== 'approved') return socket.disconnect(true);
+    socket.join('user:' + p.id);
+    if (u.role === 'admin') socket.join('admins');
+  } catch { socket.disconnect(true); }
+});
+
+app.get('/', (_, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+/* ---------- ตัวจัดการข้อผิดพลาด (ต้องอยู่ล่างสุด) ---------- */
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError)
+    return res.status(413).json({ error: 'ไฟล์ใหญ่เกิน 10 MB หรือจำนวนรูปเกินที่กำหนด' });
+  console.error(err);
+  res.status(500).json({ error: 'เกิดข้อผิดพลาดในระบบ' });
+});
+
+server.listen(PORT, () => console.log(`✅ ระบบพร้อมใช้งานที่ http://localhost:${PORT}`));
+
+===== FILE: public/style.css =====
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap');
+
+:root{
+  --brand:#1e5fd9; --brand2:#00b8a9; --bg:#f4f7fb; --card:#fff;
+  --text:#132238; --muted:#6b7a90; --line:#e4eaf2;
+  --ok:#17a673; --warn:#f0a500; --bad:#e5484d;
+  --radius:18px; --shadow:0 10px 30px rgba(20,40,80,.10);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:'Noto Sans Thai',system-ui,sans-serif;background:var(--bg);color:var(--text)}
+a{color:var(--brand);text-decoration:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;cursor:pointer;
+  padding:13px 20px;border-radius:14px;font:inherit;font-weight:600;font-size:15px;
+  background:linear-gradient(135deg,var(--brand),#2b7ef0);color:#fff;transition:.2s;width:100%}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(30,95,217,.35)}
+.btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.btn.ghost{background:#eef3fb;color:var(--brand)}
+.btn.ok{background:linear-gradient(135deg,#13a06f,#2ac08c)}
+.btn.bad{background:linear-gradient(135deg,#e5484d,#f0666b)}
+.btn.sm{padding:8px 14px;font-size:13px;width:auto;border-radius:10px}
+input,select,textarea{width:100%;padding:13px 14px;border:1.5px solid var(--line);border-radius:13px;
+  font:inherit;background:#fff;color:var(--text);transition:.2s;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 4px rgba(30,95,217,.12)}
+label{display:block;font-size:13.5px;font-weight:600;margin:0 0 6px;color:#44546b}
+.field{margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.grid2{grid-template-columns:1fr}}
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px}
+.badge{display:inline-block;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600}
+.b-pending{background:#fff4dc;color:#a97400}
+.b-approved{background:#e2f7ee;color:#0e7a52}
+.b-rejected{background:#fdeaea;color:#c32a2f}
+
+.auth-wrap{min-height:100vh;display:grid;place-items:center;padding:20px;
+  background:radial-gradient(1200px 600px at 10% 0%,#2b7ef0 0%,#123b86 45%,#0b1f45 100%)}
+.auth-card{width:100%;max-width:470px;background:rgba(255,255,255,.97);backdrop-filter:blur(14px);
+  border-radius:24px;padding:30px 26px;box-shadow:0 24px 60px rgba(0,0,0,.35);animation:rise .5s ease}
+@keyframes rise{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+.logo{width:64px;height:64px;margin:0 auto 14px;border-radius:20px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;font-size:30px;
+  box-shadow:0 10px 24px rgba(30,95,217,.4)}
+.org{text-align:center;font-size:18px;font-weight:700;line-height:1.5}
+.org small{display:block;font-weight:400;color:var(--muted);font-size:12.5px;margin-top:8px}
+.tabs{display:flex;background:#eef2f8;border-radius:14px;padding:5px;margin:20px 0 18px;flex-wrap:wrap}
+.tabs button{flex:1;border:0;background:transparent;padding:10px;border-radius:10px;font:inherit;
+  font-weight:600;color:var(--muted);cursor:pointer;transition:.2s;white-space:nowrap}
+.tabs button.on{background:#fff;color:var(--brand);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.msg{padding:11px 14px;border-radius:12px;font-size:14px;margin-bottom:14px;display:none}
+.msg.err{background:#fdeaea;color:#c32a2f;display:block}
+.msg.ok{background:#e2f7ee;color:#0e7a52;display:block}
+.foot{text-align:center;font-size:12px;color:var(--muted);margin-top:18px;line-height:1.7}
+
+.topbar{position:fixed;top:0;left:0;right:0;height:60px;z-index:900;display:flex;align-items:center;
+  gap:12px;padding:0 14px;background:rgba(255,255,255,.88);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line)}
+.topbar h1{font-size:15px;margin:0;font-weight:700;line-height:1.3;flex:1}
+.topbar h1 span{display:block;font-size:11px;color:var(--muted);font-weight:400}
+.avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid #fff;
+  box-shadow:0 2px 10px rgba(0,0,0,.18);cursor:pointer;background:#dde6f3}
+#map{position:fixed;inset:60px 0 0 0}
+.fab{position:fixed;right:18px;bottom:26px;z-index:800;padding:16px 22px;border-radius:999px;width:auto;
+  box-shadow:0 12px 30px rgba(30,95,217,.45);font-size:16px}
+.chip-bar{position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:800;display:flex;gap:8px}
+.chip{background:rgba(255,255,255,.95);border:1px solid var(--line);border-radius:999px;padding:7px 14px;
+  font-size:12.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.1);cursor:pointer}
+.sheet{position:fixed;inset:0;z-index:1000;display:none;align-items:flex-end;justify-content:center;
+  background:rgba(10,20,40,.5);backdrop-filter:blur(3px)}
+.sheet.show{display:flex;animation:fade .2s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet-box{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;
+  border-radius:24px 24px 0 0;padding:8px 20px 26px;animation:up .3s cubic-bezier(.2,.8,.3,1)}
+@media(min-width:620px){.sheet{align-items:center}.sheet-box{border-radius:24px;max-height:88vh}}
+@keyframes up{from{transform:translateY(60px);opacity:.6}to{transform:none;opacity:1}}
+.handle{width:44px;height:5px;background:#d6dee9;border-radius:9px;margin:8px auto 14px}
+.sheet-box h3{margin:0 0 16px;font-size:19px}
+.photo-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.photo-row img{width:72px;height:72px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
+.toast{position:fixed;left:50%;top:76px;transform:translateX(-50%) translateY(-20px);z-index:2000;
+  background:#12304f;color:#fff;padding:13px 22px;border-radius:14px;font-size:14.5px;font-weight:600;
+  box-shadow:0 12px 30px rgba(0,0,0,.3);opacity:0;transition:.3s;pointer-events:none;max-width:90vw}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{background:linear-gradient(135deg,#0e9c6b,#1fbd88)}
+.toast.err{background:linear-gradient(135deg,#d13b40,#ec6469)}
+.leaflet-popup-content-wrapper{border-radius:16px}
+.leaflet-popup-content{margin:14px 16px;font-family:'Noto Sans Thai',sans-serif;width:230px!important}
+.pop h4{margin:0 0 6px;font-size:15px}
+.pop p{margin:3px 0;font-size:12.5px;color:var(--muted)}
+.pin{display:grid;place-items:center;width:34px;height:34px;border-radius:50% 50% 50% 4px;
+  transform:rotate(-45deg);box-shadow:0 4px 12px rgba(0,0,0,.35);border:2.5px solid #fff;font-size:15px}
+.pin i{transform:rotate(45deg);font-style:normal}
+
+.admin-wrap{max-width:1180px;margin:0 auto;padding:80px 16px 40px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px}
+.stat{background:#fff;border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+.stat b{display:block;font-size:28px;color:var(--brand)}
+.stat span{font-size:13px;color:var(--muted)}
+.row{background:#fff;border-radius:16px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px;
+  display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.row .info{flex:1;min-width:220px;font-size:13.5px;line-height:1.75}
+.row .info b{font-size:15.5px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+
+===== FILE: public/index.html =====
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>เข้าสู่ระบบ | พมจ.นครปฐม</title><link rel="stylesheet" href="/style.css">
+</head><body>
+<div class="auth-wrap"><div class="auth-card">
+  <div class="logo">🏛️</div>
+  <div class="org">สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์<br>จังหวัดนครปฐม
+    <small>ระบบบันทึกพิกัดผู้ประสบปัญหาทางสังคม</small></div>
+
+  <div class="tabs"><button id="tL" class="on">เข้าสู่ระบบ</button><button id="tR">สมัครสมาชิก</button></div>
+  <div id="msg" class="msg"></div>
+
+  <form id="fLogin">
+    <div class="field"><label>ชื่อผู้ใช้</label><input name="username" required autocomplete="username"></div>
+    <div class="field"><label>รหัสผ่าน</label><input name="password" type="password" required autocomplete="current-password"></div>
+    <button class="btn">เข้าสู่ระบบ →</button>
+  </form>
+
+  <form id="fReg" style="display:none" enctype="multipart/form-data">
+    <div class="grid2">
+      <div class="field"><label>ชื่อ *</label><input name="first_name" required></div>
+      <div class="field"><label>นามสกุล *</label><input name="last_name" required></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อเล่น</label><input name="nickname"></div>
+      <div class="field"><label>เบอร์โทรศัพท์ *</label><input name="phone" type="tel" required></div>
+    </div>
+    <div class="field"><label>สังกัด *</label>
+      <select name="affiliation" id="aff" required>
+        <option value="">— เลือกสังกัด —</option>
+        <option>อพม.</option><option>นักพัฒนาสังคม</option><option>เจ้าหน้าที่</option>
+        <option>พม.</option><option>อื่นๆ</option>
+      </select></div>
+    <div class="field" id="affOther" style="display:none">
+      <label>ระบุสังกัด *</label><input name="affiliation_other"></div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อผู้ใช้ *</label><input name="username" required autocomplete="off"></div>
+      <div class="field"><label>รหัสผ่าน *</label><input name="password" type="password" minlength="6" required></div>
+    </div>
+    <div class="field"><label>รูปโปรไฟล์ (เพิ่ม/แก้ไขภายหลังได้)</label><input name="avatar" type="file" accept="image/*"></div>
+    <button class="btn">สมัครสมาชิก</button>
+    <p style="font-size:12.5px;color:#6b7a90;text-align:center;margin-top:12px">
+      * หลังสมัครต้องรอผู้ดูแลระบบอนุมัติก่อนเข้าใช้งาน</p>
+  </form>
+
+  <div class="foot">พัฒนาโดย จนท.ระบบงานคอมพิวเตอร์</div>
+</div></div>
+
+<script>
+const $=s=>document.querySelector(s), msg=$('#msg');
+const show=(t,k)=>{msg.textContent=t;msg.className='msg '+k;window.scrollTo(0,0)};
+$('#tL').onclick=()=>{$('#tL').classList.add('on');$('#tR').classList.remove('on');
+  $('#fLogin').style.display='';$('#fReg').style.display='none';msg.className='msg'};
+$('#tR').onclick=()=>{$('#tR').classList.add('on');$('#tL').classList.remove('on');
+  $('#fReg').style.display='';$('#fLogin').style.display='none';msg.className='msg'};
+$('#aff').onchange=e=>{const o=e.target.value==='อื่นๆ';$('#affOther').style.display=o?'':'none';
+  $('#affOther input').required=o};
+
+$('#fLogin').onsubmit=async e=>{e.preventDefault();
+  const b=e.target.querySelector('button');b.disabled=true;b.textContent='กำลังเข้าสู่ระบบ...';
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});
+    const d=await r.json();
+    if(!r.ok){show(d.error,'err');return;}
+    location.href = d.user.role==='admin' ? '/admin.html' : '/app.html';
+  }catch(err){show('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้','err');}
+  finally{b.disabled=false;b.textContent='เข้าสู่ระบบ →';}
+};
+$('#fReg').onsubmit=async e=>{e.preventDefault();
+  const b=e.target.querySelector('button');b.disabled=true;b.textContent='กำลังส่งข้อมูล...';
+  try{
+    const r=await fetch('/api/register',{method:'POST',body:new FormData(e.target)});
+    const d=await r.json();
+    if(!r.ok){show(d.error,'err');return;}
+    show('✅ '+d.message,'ok');e.target.reset();$('#affOther').style.display='none';
+  }catch(err){show('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้','err');}
+  finally{b.disabled=false;b.textContent='สมัครสมาชิก';}
+};
+fetch('/api/me').then(r=>r.ok&&r.json()).then(u=>{if(u&&u.status==='approved')
+  location.href=u.role==='admin'?'/admin.html':'/app.html'}).catch(()=>{});
+</script></body></html>
+
+===== FILE: public/app.html =====
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>แผนที่บันทึกพิกัด | พมจ.นครปฐม</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link rel="stylesheet" href="/style.css">
+</head><body>
+
+<div class="topbar">
+  <div class="logo" style="width:38px;height:38px;border-radius:12px;font-size:18px;margin:0">🏛️</div>
+  <h1>พมจ.นครปฐม — แผนที่พิกัดเคส<span>พัฒนาโดย จนท.ระบบงานคอมพิวเตอร์</span></h1>
+  <img id="av" class="avatar" src="" alt="โปรไฟล์">
+</div>
+
+<div class="chip-bar">
+  <div class="chip" id="chipCount">กำลังโหลด…</div>
+  <div class="chip" id="chipLoc">📍 ตำแหน่งฉัน</div>
+</div>
+
+<div id="map"></div>
+<button class="btn fab" id="fab">➕ บันทึกพิกัด</button>
+
+<div class="sheet" id="sheetPoint"><div class="sheet-box"><div class="handle"></div>
+  <h3>📌 บันทึกพิกัดเคสใหม่</h3>
+  <div id="coordBox" style="background:#eef3fb;border-radius:13px;padding:11px 14px;font-size:13px;margin-bottom:14px"></div>
+  <form id="fPoint" enctype="multipart/form-data">
+    <input type="hidden" name="lat"><input type="hidden" name="lng">
+    <div class="field"><label>ชื่อเคส *</label><input name="case_name" placeholder="เช่น นายสมชาย ใจดี" required></div>
+    <div class="field"><label>ลักษณะเคส *</label>
+      <select name="case_type" id="ct" required>
+        <option value="">— เลือกลักษณะ —</option>
+        <option>ผู้ป่วยติดเตียง</option><option>ผู้พิการ</option><option>เด็ก</option>
+        <option>ผู้ยากไร้</option><option>ผู้สูงอายุ</option><option>อื่นๆ</option>
+      </select></div>
+    <div class="field" id="ctOther" style="display:none"><label>ระบุลักษณะ *</label><input name="case_type_other"></div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อผู้ดูแล</label><input name="caretaker_name"></div>
+      <div class="field"><label>เบอร์โทรผู้ดูแล</label><input name="caretaker_phone" type="tel"></div>
+    </div>
+    <div class="field"><label>ที่อยู่</label><textarea name="address" rows="2" placeholder="บ้านเลขที่ หมู่ ตำบล อำเภอ"></textarea></div>
+    <div class="field"><label>รูปภาพ (ถ่ายสด/เลือกไฟล์ ได้สูงสุด 6 รูป)</label>
+      <input type="file" name="photos" id="photos" accept="image/*" capture="environment" multiple>
+      <div class="photo-row" id="prev"></div></div>
+    <div class="field"><label>หมายเหตุ</label><textarea name="note" rows="2"></textarea></div>
+    <div style="display:flex;gap:10px">
+      <button type="button" class="btn ghost" id="cancelP">ยกเลิก</button>
+      <button type="submit" class="btn" id="savePoint">💾 บันทึกพิกัด</button>
+    </div>
+  </form>
+</div></div>
+
+<div class="sheet" id="sheetProfile"><div class="sheet-box"><div class="handle"></div>
+  <h3>👤 แก้ไขโปรไฟล์</h3>
+  <form id="fProfile" enctype="multipart/form-data">
+    <div style="text-align:center;margin-bottom:16px">
+      <img id="avBig" class="avatar" style="width:92px;height:92px" src="">
+      <div class="field" style="margin-top:10px"><input type="file" name="avatar" accept="image/*"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อ</label><input name="first_name"></div>
+      <div class="field"><label>นามสกุล</label><input name="last_name"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อเล่น</label><input name="nickname"></div>
+      <div class="field"><label>เบอร์โทรศัพท์</label><input name="phone"></div>
+    </div>
+    <div class="field"><label>สังกัด</label>
+      <select name="affiliation" id="pAff">
+        <option>อพม.</option><option>นักพัฒนาสังคม</option><option>เจ้าหน้าที่</option>
+        <option>พม.</option><option>อื่นๆ</option></select></div>
+    <div class="field" id="pAffOther" style="display:none"><label>ระบุสังกัด</label><input name="affiliation_other"></div>
+    <div class="grid2">
+      <div class="field"><label>Facebook</label><input name="facebook" placeholder="ลิงก์หรือชื่อโปรไฟล์"></div>
+      <div class="field"><label>TikTok</label><input name="tiktok" placeholder="@username"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>LINE ID</label><input name="line_id"></div>
+      <div class="field"><label>เว็บไซต์</label><input name="website" placeholder="https://"></div>
+    </div>
+    <div class="field"><label>รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</label><input name="password" type="password" minlength="6"></div>
+    <div style="display:flex;gap:10px">
+      <button type="button" class="btn ghost" id="logout">ออกจากระบบ</button>
+      <button type="submit" class="btn">บันทึกโปรไฟล์</button>
+    </div>
+  </form>
+</div></div>
+
+<div class="sheet" id="sheetDetail"><div class="sheet-box"><div class="handle"></div>
+  <div id="detail"></div>
+  <button class="btn ghost" id="closeD" style="margin-top:14px">ปิด</button>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const TYPES={'ผู้ป่วยติดเตียง':{c:'#e5484d',i:'🛏️'},'ผู้พิการ':{c:'#7c5cff',i:'♿'},
+  'เด็ก':{c:'#f0a500',i:'🧒'},'ผู้ยากไร้':{c:'#0f8f74',i:'🏠'},
+  'ผู้สูงอายุ':{c:'#2b7ef0',i:'👴'},'อื่นๆ':{c:'#6b7a90',i:'📍'}};
+let me=null, map, cluster, markers={}, picked=null, pickMarker=null, myLoc=null;
+
+const toast=(t,k='ok')=>{const e=$('#toast');e.textContent=t;e.className='toast show '+k;
+  setTimeout(()=>e.className='toast '+k,3200)};
+const open=id=>$(id).classList.add('show');
+const close=id=>$(id).classList.remove('show');
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const label=s=>s==='approved'?'อนุมัติแล้ว':s==='pending'?'รออนุมัติ':'ไม่อนุมัติ';
+document.querySelectorAll('.sheet').forEach(s=>s.onclick=e=>{if(e.target===s)s.classList.remove('show')});
+
+(async()=>{
+  const r=await fetch('/api/me'); if(!r.ok) return location.href='/';
+  me=await r.json(); if(me.status!=='approved') return location.href='/';
+  const fallback='https://api.dicebear.com/7.x/initials/svg?seed='+encodeURIComponent(me.nickname||me.firstName||'U');
+  $('#av').src=$('#avBig').src = me.avatar||fallback;
+  initMap(); loadPoints(); initSocket();
+})();
+
+function initMap(){
+  map=L.map('map',{zoomControl:false}).setView([13.8199,100.0621],12);
+  L.control.zoom({position:'bottomleft'}).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    {maxZoom:20,attribution:'&copy; OpenStreetMap, CARTO'}).addTo(map);
+  cluster=L.markerClusterGroup({maxClusterRadius:45}).addTo(map);
+
+  map.on('click',e=>setPick(e.latlng.lat,e.latlng.lng));
+  map.on('contextmenu',e=>setPick(e.latlng.lat,e.latlng.lng));
+
+  if(navigator.geolocation) navigator.geolocation.watchPosition(p=>{
+    myLoc=[p.coords.latitude,p.coords.longitude];
+    if(!window._meM){
+      window._meM=L.circleMarker(myLoc,{radius:8,color:'#fff',weight:3,
+        fillColor:'#2b7ef0',fillOpacity:1}).addTo(map).bindTooltip('คุณอยู่ที่นี่');
+      map.setView(myLoc,16);
+    } else window._meM.setLatLng(myLoc);
+  },()=>toast('เปิดการเข้าถึงตำแหน่งเพื่อใช้งานได้เต็มที่','err'),{enableHighAccuracy:true});
+}
+
+function setPick(lat,lng){
+  picked=[lat,lng];
+  if(pickMarker) pickMarker.setLatLng(picked);
+  else{
+    pickMarker=L.marker(picked,{draggable:true}).addTo(map)
+      .bindTooltip('จุดที่เลือก — ลากเพื่อปรับ',{permanent:true,direction:'top'}).openTooltip();
+    pickMarker.on('dragend',ev=>{const p=ev.target.getLatLng();picked=[p.lat,p.lng];});
+  }
+}
+
+function icon(t){
+  const s=TYPES[t]||TYPES['อื่นๆ'];
+  return L.divIcon({className:'',iconSize:[34,34],iconAnchor:[17,32],popupAnchor:[0,-28],
+    html:'<div class="pin" style="background:'+s.c+'"><i>'+s.i+'</i></div>'});
+}
+
+function addMarker(p){
+  if(markers[p.id]) cluster.removeLayer(markers[p.id]);
+  if(p.status==='rejected' && p.reporterId!==me.id){ delete markers[p.id]; return; }
+  const t=p.caseType==='อื่นๆ'?(p.caseTypeOther||'อื่นๆ'):p.caseType;
+  const m=L.marker([p.lat,p.lng],{icon:icon(p.caseType)});
+  m.bindPopup('<div class="pop"><h4>'+esc(p.caseName)+'</h4>'+
+    '<p>🏷️ '+esc(t)+'</p><p>📞 '+esc(p.caretakerPhone||'-')+'</p>'+
+    '<p>👤 '+esc(p.reporter.name)+'</p>'+
+    '<span class="badge b-'+p.status+'">'+label(p.status)+'</span>'+
+    '<button class="btn sm" style="margin-top:10px;width:100%" onclick="detail('+p.id+')">ดูรายละเอียด</button></div>');
+  m.bindTooltip(p.caseName,{direction:'top',offset:[0,-28]});
+  markers[p.id]=m; cluster.addLayer(m); updateCount();
+}
+const updateCount=()=>$('#chipCount').textContent='🗺️ '+Object.keys(markers).length+' จุด';
+
+async function loadPoints(){
+  const d=await (await fetch('/api/points')).json();
+  cluster.clearLayers(); markers={}; d.forEach(addMarker); updateCount();
+}
+
+function initSocket(){
+  const s=io();
+  s.on('point:approved',p=>{addMarker(p);toast('📍 มีพิกัดใหม่จาก '+p.reporter.name)});
+  s.on('point:removed',d=>{if(markers[d.id]){cluster.removeLayer(markers[d.id]);delete markers[d.id];updateCount();}});
+  s.on('point:mine',p=>addMarker(p));
+  s.on('user:status',d=>{if(d.status!=='approved'){alert('สถานะบัญชีของคุณถูกเปลี่ยนโดยผู้ดูแลระบบ');location.href='/';}});
+}
+
+$('#fab').onclick=()=>{
+  const c = picked || myLoc;
+  if(!c) return toast('ยังไม่ทราบตำแหน่ง — คลิกบนแผนที่เพื่อเลือกจุด','err');
+  $('#fPoint').lat.value=c[0]; $('#fPoint').lng.value=c[1];
+  $('#coordBox').innerHTML='📍 <b>พิกัดที่จะบันทึก</b><br>Lat: '+c[0].toFixed(6)+' , Lng: '+c[1].toFixed(6)+
+    '<br><span style="color:#6b7a90">'+(picked?'จุดที่เลือกบนแผนที่':'ตำแหน่ง GPS ปัจจุบัน')+'</span>';
+  open('#sheetPoint');
+};
+$('#cancelP').onclick=()=>close('#sheetPoint');
+$('#ct').onchange=e=>{const o=e.target.value==='อื่นๆ';$('#ctOther').style.display=o?'':'none';
+  $('#ctOther input').required=o};
+$('#photos').onchange=e=>{$('#prev').innerHTML='';
+  Array.from(e.target.files).slice(0,6).forEach(f=>{const i=new Image();i.src=URL.createObjectURL(f);$('#prev').appendChild(i)})};
+
+$('#fPoint').onsubmit=async e=>{
+  e.preventDefault();
+  const btn=$('#savePoint'); btn.disabled=true; btn.textContent='กำลังบันทึก...';
+  try{
+    const r=await fetch('/api/points',{method:'POST',body:new FormData(e.target)});
+    const d=await r.json();
+    if(!r.ok){toast(d.error,'err');return;}
+    close('#sheetPoint'); e.target.reset(); $('#prev').innerHTML=''; $('#ctOther').style.display='none';
+    if(pickMarker){map.removeLayer(pickMarker);pickMarker=null;picked=null;}
+    addMarker(d.point);
+    toast('✅ บันทึกพิกัดสำเร็จ! รอผู้ดูแลระบบอนุมัติ');
+  }catch(err){toast('บันทึกไม่สำเร็จ ตรวจสอบการเชื่อมต่อ','err');}
+  finally{btn.disabled=false;btn.textContent='💾 บันทึกพิกัด';}
+};
+
+async function detail(id){
+  const r=await fetch('/api/points/'+id);
+  if(!r.ok) return toast('ไม่พบข้อมูล','err');
+  const p=await r.json();
+  const t=p.caseType==='อื่นๆ'?(p.caseTypeOther||'อื่นๆ'):p.caseType;
+  $('#detail').innerHTML='<h3>'+esc(p.caseName)+'</h3>'+
+    '<span class="badge b-'+p.status+'">'+label(p.status)+'</span>'+
+    '<div style="font-size:14px;line-height:2;margin-top:12px">'+
+      '<div>🏷️ <b>ลักษณะ:</b> '+esc(t)+'</div>'+
+      '<div>👤 <b>ผู้ดูแล:</b> '+esc(p.caretakerName||'-')+'</div>'+
+      '<div>📞 <b>โทร:</b> '+(p.caretakerPhone?'<a href="tel:'+esc(p.caretakerPhone)+'">'+esc(p.caretakerPhone)+'</a>':'-')+'</div>'+
+      '<div>🏠 <b>ที่อยู่:</b> '+esc(p.address||'-')+'</div>'+
+      '<div>📝 <b>หมายเหตุ:</b> '+esc(p.note||'-')+'</div>'+
+      '<div>📍 <b>พิกัด:</b> '+p.lat.toFixed(6)+', '+p.lng.toFixed(6)+'</div>'+
+      '<div>🧑‍💼 <b>ผู้บันทึก:</b> '+esc(p.reporter.name)+' — '+esc(p.reporter.affiliation||'-')+'</div>'+
+      '<div>🕒 '+esc(p.createdAt)+'</div>'+
+      (p.status==='rejected'&&p.rejectReason?'<div>⚠️ <b>เหตุผลที่ไม่อนุมัติ:</b> '+esc(p.rejectReason)+'</div>':'')+
+    '</div>'+
+    '<div class="photo-row">'+p.photos.map(f=>'<a href="'+f+'" target="_blank"><img src="'+f+'"></a>').join('')+'</div>'+
+    '<a class="btn ok" style="margin-top:14px" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination='+p.lat+','+p.lng+'">🧭 นำทางไปยังจุดนี้</a>';
+  open('#sheetDetail');
+}
+$('#closeD').onclick=()=>close('#sheetDetail');
+$('#chipLoc').onclick=()=>myLoc?map.setView(myLoc,17):toast('ยังไม่ได้รับตำแหน่ง','err');
+
+$('#av').onclick=()=>{
+  const f=$('#fProfile');
+  f.first_name.value=me.firstName||''; f.last_name.value=me.lastName||'';
+  f.nickname.value=me.nickname||''; f.phone.value=me.phone||'';
+  f.affiliation.value=me.affiliation||'เจ้าหน้าที่'; f.affiliation_other.value=me.affiliationOther||'';
+  f.facebook.value=me.facebook||''; f.tiktok.value=me.tiktok||'';
+  f.line_id.value=me.lineId||''; f.website.value=me.website||'';
+  f.password.value='';
+  $('#pAffOther').style.display=me.affiliation==='อื่นๆ'?'':'none';
+  open('#sheetProfile');
+};
+$('#pAff').onchange=e=>$('#pAffOther').style.display=e.target.value==='อื่นๆ'?'':'none';
+$('#fProfile').onsubmit=async e=>{
+  e.preventDefault();
+  const r=await fetch('/api/profile',{method:'PUT',body:new FormData(e.target)});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  me=d.user;
+  if(me.avatar){$('#av').src=$('#avBig').src=me.avatar+'?t='+Date.now();}
+  close('#sheetProfile'); toast('✅ บันทึกโปรไฟล์สำเร็จ');
+};
+$('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/'};
+</script></body></html>
+
+===== FILE: public/admin.html =====
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>หลังบ้านผู้ดูแลระบบ | พมจ.นครปฐม</title><link rel="stylesheet" href="/style.css">
+</head><body>
+<div class="topbar">
+  <div class="logo" style="width:38px;height:38px;border-radius:12px;font-size:18px;margin:0">🛡️</div>
+  <h1>หลังบ้านผู้ดูแลระบบ<span>สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม</span></h1>
+  <button class="btn sm ghost" onclick="location.href='/app.html'">แผนที่</button>
+  <button class="btn sm bad" id="out">ออก</button>
+</div>
+
+<div class="admin-wrap">
+  <div class="stats" id="stats"></div>
+  <div class="tabs" style="max-width:700px">
+    <button data-t="up" class="on">สมาชิกรออนุมัติ</button>
+    <button data-t="pp">พิกัดรออนุมัติ</button>
+    <button data-t="au">สมาชิกทั้งหมด</button>
+    <button data-t="ap">พิกัดทั้งหมด</button>
+  </div>
+  <div id="list"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $=s=>document.querySelector(s); let tab='up';
+const toast=(t,k='ok')=>{const e=$('#toast');e.textContent=t;e.className='toast show '+k;setTimeout(()=>e.className='toast',3000)};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const B={pending:'รออนุมัติ',approved:'อนุมัติแล้ว',rejected:'ไม่อนุมัติ'};
+const ava=u=>u.avatar||'https://api.dicebear.com/7.x/initials/svg?seed='+encodeURIComponent(u.nickname||u.firstName||'U');
+
+(async()=>{
+  const r=await fetch('/api/me'); if(!r.ok) return location.href='/';
+  const u=await r.json(); if(u.role!=='admin') return location.href='/app.html';
+  render();
+  const s=io();
+  s.on('user:pending',()=>{toast('🔔 มีสมาชิกใหม่รออนุมัติ');render()});
+  s.on('point:pending',p=>{toast('🔔 พิกัดใหม่รออนุมัติ: '+p.caseName);render()});
+})();
+
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); tab=b.dataset.t; render();
+});
+
+const empty=()=>'<div class="card" style="text-align:center;color:#6b7a90;padding:46px">— ไม่มีรายการ —</div>';
+
+async function render(){
+  const st=await (await fetch('/api/admin/stats')).json();
+  $('#stats').innerHTML=
+    '<div class="stat"><b>'+st.pendingUsers+'</b><span>สมาชิกรออนุมัติ</span></div>'+
+    '<div class="stat"><b>'+st.approvedUsers+'</b><span>สมาชิกที่อนุมัติแล้ว</span></div>'+
+    '<div class="stat"><b>'+st.pendingPoints+'</b><span>พิกัดรออนุมัติ</span></div>'+
+    '<div class="stat"><b>'+st.approvedPoints+'</b><span>พิกัดที่เผยแพร่</span></div>';
+
+  if(tab==='up'||tab==='au'){
+    const q=tab==='up'?'?status=pending':'';
+    const us=await (await fetch('/api/admin/users'+q)).json();
+    $('#list').innerHTML = us.length ? us.map(u=>
+      '<div class="row">'+
+        '<img class="avatar" style="width:58px;height:58px" src="'+ava(u)+'">'+
+        '<div class="info"><b>'+esc(u.firstName)+' '+esc(u.lastName)+'</b> '+(u.nickname?'('+esc(u.nickname)+')':'')+
+          ' <span class="badge b-'+u.status+'">'+B[u.status]+'</span>'+(u.role==='admin'?' <span class="badge b-approved">ผู้ดูแล</span>':'')+'<br>'+
+          '🏢 '+esc(u.affiliation==='อื่นๆ'?u.affiliationOther:u.affiliation)+' • 📞 '+esc(u.phone)+'<br>'+
+          '👤 '+esc(u.username)+' • สมัคร '+esc(u.createdAt)+
+          (u.facebook?'<br>📘 '+esc(u.facebook):'')+(u.tiktok?' • 🎵 '+esc(u.tiktok):'')+
+          (u.lineId?' • 💚 '+esc(u.lineId):'')+(u.website?' • 🌐 '+esc(u.website):'')+
+        '</div>'+
+        '<div class="acts">'+
+          (u.status!=='approved'?'<button class="btn sm ok" onclick="su('+u.id+',\'approved\')">✓ อนุมัติ</button>':'')+
+          (u.status!=='rejected'&&u.role!=='admin'?'<button class="btn sm bad" onclick="su('+u.id+',\'rejected\')">✕ ปฏิเสธ</button>':'')+
+          (u.role!=='admin'?'<button class="btn sm ghost" onclick="du('+u.id+')">ลบ</button>':'')+
+        '</div>'+
+      '</div>').join('') : empty();
+  } else {
+    const q=tab==='pp'?'?status=pending':'';
+    const ps=await (await fetch('/api/admin/points'+q)).json();
+    $('#list').innerHTML = ps.length ? ps.map(p=>
+      '<div class="row">'+
+        '<div class="info"><b>'+esc(p.caseName)+'</b> <span class="badge b-'+p.status+'">'+B[p.status]+'</span><br>'+
+          '🏷️ '+esc(p.caseType==='อื่นๆ'?p.caseTypeOther:p.caseType)+'<br>'+
+          '👤 ผู้ดูแล: '+esc(p.caretakerName||'-')+' • 📞 '+esc(p.caretakerPhone||'-')+'<br>'+
+          '🏠 '+esc(p.address||'-')+'<br>📝 '+esc(p.note||'-')+'<br>'+
+          '📍 <a target="_blank" href="https://www.google.com/maps?q='+p.lat+','+p.lng+'">'+p.lat.toFixed(6)+', '+p.lng.toFixed(6)+'</a><br>'+
+          '🧑‍💼 บันทึกโดย '+esc(p.reporter.name)+' ('+esc(p.reporter.affiliation||'-')+') • '+esc(p.createdAt)+
+          '<div class="photo-row">'+p.photos.map(f=>'<a href="'+f+'" target="_blank"><img src="'+f+'"></a>').join('')+'</div>'+
+        '</div>'+
+        '<div class="acts">'+
+          (p.status!=='approved'?'<button class="btn sm ok" onclick="sp('+p.id+',\'approved\')">✓ อนุมัติ</button>':'')+
+          (p.status!=='rejected'?'<button class="btn sm bad" onclick="sp('+p.id+',\'rejected\')">✕ ไม่อนุมัติ</button>':'')+
+          '<button class="btn sm ghost" onclick="dp('+p.id+')">ลบ</button>'+
+        '</div>'+
+      '</div>').join('') : empty();
+  }
+}
+
+async function su(id,status){
+  const r=await fetch('/api/admin/users/'+id+'/status',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast(status==='approved'?'✅ อนุมัติสมาชิกแล้ว':'ปฏิเสธสมาชิกแล้ว'); render();
+}
+async function du(id){
+  if(!confirm('ยืนยันลบสมาชิกนี้? พิกัดทั้งหมดของสมาชิกจะถูกลบด้วย')) return;
+  const r=await fetch('/api/admin/users/'+id,{method:'DELETE'});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast('ลบสมาชิกแล้ว (พิกัด '+d.removedPoints+' จุด)'); render();
+}
+async function sp(id,status){
+  let reason='';
+  if(status==='rejected') reason=prompt('เหตุผลที่ไม่อนุมัติ (ไม่บังคับ)')||'';
+  const r=await fetch('/api/admin/points/'+id+'/status',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({status,reason})});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast(status==='approved'?'✅ อนุมัติพิกัด — ขึ้นแผนที่เรียลไทม์แล้ว':'ไม่อนุมัติพิกัดแล้ว'); render();
+}
+async function dp(id){
+  if(!confirm('ยืนยันลบพิกัดนี้?')) return;
+  const r=await fetch('/api/admin/points/'+id,{method:'DELETE'});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast('ลบพิกัดแล้ว'); render();
+}
+$('#out').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/'};
+</script></body></html>
+
+===== FILE: README.md =====
+# ระบบบันทึกพิกัดผู้ประสบปัญหาทางสังคม
+สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม
+พัฒนาโดย จนท.ระบบงานคอมพิวเตอร์
+
+## ติดตั้ง
+1. node setup.js
+2. npm install
+3. npm start
+4. เปิด http://localhost:3000
+
+## บัญชีแอดมินเริ่มต้น
+username: admin
+password: admin123
+(เปลี่ยนรหัสผ่านทันทีหลังเข้าใช้งานครั้งแรก ที่เมนูโปรไฟล์)
+
+## หมายเหตุสำคัญ
+- GPS บนเบราว์เซอร์ทำงานเฉพาะ HTTPS หรือ localhost เท่านั้น
+- ตั้งค่าก่อนขึ้นโปรดักชัน:
+  NODE_ENV=production
+  JWT_SECRET=ใส่ค่าสุ่มยาว ๆ ของคุณเอง
+- สำรองข้อมูล: คัดลอกไฟล์ data.db และโฟลเดอร์ uploads/
+
+## โครงสร้าง
+- server.js            เซิร์ฟเวอร์ API + Socket.IO
+- public/index.html    หน้าเข้าสู่ระบบ / สมัครสมาชิก
+- public/app.html      แผนที่ + บันทึกพิกัด + โปรไฟล์
+- public/admin.html    หลังบ้านผู้ดูแลระบบ
+- public/style.css     ธีมหลัก
+- data.db              ฐานข้อมูล SQLite (สร้างอัตโนมัติ)
+- uploads/             ไฟล์รูปภาพ (สร้างอัตโนมัติ)

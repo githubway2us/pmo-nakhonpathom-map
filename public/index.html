@@ -1,0 +1,226 @@
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>เข้าสู่ระบบ | ระบบบันทึกพิกัดผู้ประสบปัญหาทางสังคม | พมจ.นครปฐม</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+.skip{position:absolute;left:-999px;top:0;background:#fff;color:#0b3d91;padding:8px 14px;z-index:99;border-radius:0 0 8px 0}
+.skip:focus{left:0}
+.notice{font-size:13px;line-height:1.65;color:#33445c;background:#f2f6fc;border-left:4px solid #1f6feb;padding:9px 12px;border-radius:8px;margin:0 0 14px}
+.hint{display:block;font-size:12.5px;line-height:1.5;color:#4d5b70;margin-top:4px}
+.req{color:#b42318}
+.showpw{display:flex;gap:7px;align-items:center;font-size:13.5px;margin:-2px 0 14px;color:#33445c}
+.pdpa-content{max-height:240px;overflow:auto}
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.pdpa-content:focus-visible{outline:3px solid #1f6feb;outline-offset:2px}
+.foot small{display:block;margin-top:4px}
+</style>
+</head><body>
+<a class="skip" href="#main">ข้ามไปยังเนื้อหาหลัก</a>
+<main id="main" class="auth-wrap"><div class="auth-card">
+
+  <div class="logo"><img src="/images/logo-msdhs.png" alt="ตราสัญลักษณ์กระทรวงการพัฒนาสังคมและความมั่นคงของมนุษย์"></div>
+
+  <div class="org" role="heading" aria-level="1">สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์<br>จังหวัดนครปฐม
+    <small>ระบบบันทึกพิกัดผู้ประสบปัญหาทางสังคม/กลุ่มเปราะบาง</small></div>
+
+  <div class="tabs" role="tablist" aria-label="เลือกการดำเนินการ">
+    <button type="button" id="tL" class="on" role="tab" aria-selected="true" aria-controls="fLogin">เข้าสู่ระบบ</button>
+    <button type="button" id="tR" role="tab" aria-selected="false" aria-controls="fReg">สมัครสมาชิก</button>
+  </div>
+  <div id="msg" class="msg" role="status" aria-live="polite" tabindex="-1"></div>
+
+  <form id="fLogin" aria-labelledby="tL">
+    <p class="notice">ระบบนี้สงวนสิทธิ์สำหรับเจ้าหน้าที่และผู้ที่ได้รับอนุญาตเท่านั้น
+      การเข้าใช้งานจะถูกบันทึกเพื่อการตรวจสอบตามมาตรการรักษาความมั่นคงปลอดภัยของระบบสารสนเทศ</p>
+    <div class="field"><label for="lu">ชื่อผู้ใช้</label>
+      <input id="lu" name="username" required autocomplete="username" autocapitalize="none" spellcheck="false"></div>
+    <div class="field"><label for="lp">รหัสผ่าน</label>
+      <input id="lp" name="password" type="password" required autocomplete="current-password"></div>
+    <label class="showpw"><input type="checkbox" data-showpw="lp"> แสดงรหัสผ่าน</label>
+    <button class="btn">เข้าสู่ระบบ →</button>
+  </form>
+
+  <form id="fReg" style="display:none" enctype="multipart/form-data" aria-labelledby="tR">
+    <p class="hint" style="margin:0 0 12px">ช่องที่มีเครื่องหมาย <span class="req" aria-hidden="true">*</span> จำเป็นต้องกรอก</p>
+
+    <div class="grid2">
+      <div class="field"><label for="rf">ชื่อ <span class="req" aria-hidden="true">*</span></label>
+        <input id="rf" name="first_name" required maxlength="100" autocomplete="given-name"></div>
+      <div class="field"><label for="rl">นามสกุล <span class="req" aria-hidden="true">*</span></label>
+        <input id="rl" name="last_name" required maxlength="100" autocomplete="family-name"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label for="rn">ชื่อเล่น</label>
+        <input id="rn" name="nickname" maxlength="100" autocomplete="nickname"></div>
+      <div class="field"><label for="rt">หมายเลขโทรศัพท์ <span class="req" aria-hidden="true">*</span></label>
+        <input id="rt" name="phone" type="tel" inputmode="tel" required maxlength="20"
+               pattern="[0-9+\-\s()]{6,20}" title="ตัวเลข 6–20 หลัก เช่น 0812345678" autocomplete="tel"></div>
+    </div>
+
+    <div class="field"><label for="aff">ตำแหน่ง/สังกัด <span class="req" aria-hidden="true">*</span></label>
+      <select id="aff" name="affiliation" required></select></div>
+    <div class="field" id="affOther" style="display:none"><label for="affo">ระบุตำแหน่ง/สังกัด <span class="req" aria-hidden="true">*</span></label>
+      <input id="affo" name="affiliation_other" maxlength="100"></div>
+
+    <div class="grid2">
+      <div class="field"><label for="ru">สร้างไอดี *ใช้ในการเข้าระบบ <span class="req" aria-hidden="true">*</span></label>
+        <input id="ru" name="username" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_.]{3,32}"
+               title="ใช้ได้เฉพาะ A–Z a–z 0–9 _ . ความยาว 3–32 ตัวอักษร" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="ruh">
+        <small id="ruh" class="hint">ตัวอักษรอังกฤษ ตัวเลข _ . ยาว 3–32 ตัว</small></div>
+      <div class="field"><label for="rp">รหัสผ่าน <span class="req" aria-hidden="true">*</span></label>
+        <input id="rp" name="password" type="password" required minlength="8" maxlength="128"
+               pattern="(?=.*[A-Za-z])(?=.*\d).{8,}" title="อย่างน้อย 8 ตัวอักษร และมีทั้งตัวอักษรและตัวเลข"
+               autocomplete="new-password" aria-describedby="rph">
+        <small id="rph" class="hint">อย่างน้อย 8 ตัวอักษร ประกอบด้วยตัวอักษรและตัวเลข</small></div>
+    </div>
+    <label class="showpw"><input type="checkbox" data-showpw="rp"> แสดงรหัสผ่าน</label>
+
+    <div class="field"><label for="rav">รูปโปรไฟล์</label>
+      <input id="rav" name="avatar" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="ravh">
+      <small id="ravh" class="hint">ไฟล์ JPG, PNG หรือ WebP ขนาดไม่เกิน 10 MB สามารถเพิ่มหรือแก้ไขภายหลังได้</small></div>
+
+    <div class="pdpa-box">
+      <div class="pdpa-title" id="pdpaT">🔒 ประกาศเกี่ยวกับการประมวลผลข้อมูลส่วนบุคคล (ฉบับที่ <span id="pv">1.0</span>)</div>
+      <div class="pdpa-content" tabindex="0" role="region" aria-labelledby="pdpaT">
+        <p><strong>สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม</strong> ในฐานะผู้ควบคุมข้อมูลส่วนบุคคล
+          ดำเนินการเก็บรวบรวม ใช้ และเปิดเผยข้อมูลส่วนบุคคลตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562
+          และกฎหมายที่เกี่ยวข้อง</p>
+        <p><strong>1. ข้อมูลที่เก็บรวบรวม</strong><br>
+          ชื่อ นามสกุล ชื่อเล่น หมายเลขโทรศัพท์ ตำแหน่ง/สังกัด ชื่อผู้ใช้ รูปโปรไฟล์ และข้อมูลที่ผู้ใช้ให้เพิ่มเติม
+          รวมถึงข้อมูลการเข้าใช้งาน (เช่น วันเวลา หมายเลขไอพี ประเภทอุปกรณ์) เพื่อความมั่นคงปลอดภัยของระบบ</p>
+        <p><strong>2. วัตถุประสงค์และฐานทางกฎหมาย</strong><br>
+          เพื่อยืนยันตัวตน บริหารสิทธิการเข้าใช้งาน ประสานงาน ตรวจสอบย้อนหลัง และดำเนินภารกิจของหน่วยงานด้านการพัฒนาสังคม
+          โดยอาศัยฐานการปฏิบัติหน้าที่ในการดำเนินภารกิจเพื่อประโยชน์สาธารณะหรือการใช้อำนาจรัฐ
+          และฐานอื่นตามที่กฎหมายกำหนด</p>
+        <p><strong>3. การเปิดเผยข้อมูล</strong><br>
+          เปิดเผยเท่าที่จำเป็นแก่ผู้ดูแลระบบและหน่วยงานที่มีอำนาจหน้าที่ตามกฎหมาย
+          และไม่เปิดเผยแก่บุคคลอื่นโดยไม่มีเหตุอันชอบด้วยกฎหมาย</p>
+        <p><strong>4. ระยะเวลาเก็บรักษา</strong><br>
+          เก็บเท่าที่จำเป็นต่อวัตถุประสงค์ หรือตามระยะเวลาที่กฎหมาย ระเบียบ หรือข้อกำหนดของทางราชการกำหนด
+          เมื่อพ้นระยะเวลาจะลบ ทำลาย หรือทำให้ไม่สามารถระบุตัวบุคคลได้</p>
+        <p><strong>5. หน้าที่ของผู้ใช้งาน</strong><br>
+          ข้อมูลของผู้ประสบปัญหาทางสังคม/กลุ่มเปราะบางที่บันทึกในระบบเป็นข้อมูลที่ต้องได้รับการคุ้มครองเป็นพิเศษ
+          ผู้ใช้ต้องบันทึกและใช้ข้อมูลเท่าที่จำเป็นตามภารกิจเท่านั้น ห้ามเปิดเผย คัดลอก หรือนำไปใช้นอกวัตถุประสงค์ของระบบ
+          และต้องรักษาความลับของรหัสผ่านของตน</p>
+        <p><strong>6. สิทธิของเจ้าของข้อมูล</strong><br>
+          ขอเข้าถึง ขอรับสำเนา ขอแก้ไข ขอลบหรือทำลาย ขอระงับการใช้ ขอให้โอนย้าย คัดค้านการประมวลผล
+          และถอนความยินยอม (ในกรณีที่อาศัยความยินยอม) ตามหลักเกณฑ์ที่กฎหมายกำหนด</p>
+        <p><strong>7. ช่องทางติดต่อ</strong><br>
+          <span id="pdpaContact">ติดต่อได้ที่สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐมผ่านช่องทางของหน่วยงาน</span></p>
+        <p class="pdpa-note">รายละเอียดเพิ่มเติมเป็นไปตามประกาศความเป็นส่วนตัว (Privacy Notice) ของสำนักงานฯ</p>
+      </div>
+      <label class="pdpa-consent">
+        <input type="checkbox" name="pdpa_acknowledge" id="pdpa_acknowledge" value="1" required>
+        <span>ข้าพเจ้าได้อ่านและรับทราบประกาศเกี่ยวกับการประมวลผลข้อมูลส่วนบุคคลข้างต้นแล้ว
+          และรับทราบหน้าที่ของผู้ใช้งานในการคุ้มครองข้อมูลของผู้ประสบปัญหา
+          <span class="req" aria-hidden="true">*</span></span>
+      </label>
+    </div>
+
+    <button class="btn" id="registerBtn">สมัครสมาชิก</button>
+    <p class="hint" style="text-align:center;margin-top:12px">
+      หลังสมัครสมาชิก ต้องรอผู้ดูแลระบบตรวจสอบและอนุมัติก่อนจึงจะเข้าใช้งานได้</p>
+  </form>
+
+  <div class="foot">© สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม
+    กระทรวงการพัฒนาสังคมและความมั่นคงของมนุษย์<small>พัฒนาโดย จนท.ระบบงานคอมพิวเตอร์</small></div>
+</div></main>
+
+<script src="/gov-config.js" onerror="console.error('โหลด /gov-config.js ไม่ได้')"></script>
+<script>
+const $=s=>document.querySelector(s), msg=$('#msg');
+const show=(t,k)=>{msg.textContent=t;msg.className='msg '+k;msg.setAttribute('role',k==='err'?'alert':'status');
+  msg.scrollIntoView({block:'center'});msg.focus()};
+const tab=reg=>{
+  $('#tL').classList.toggle('on',!reg);$('#tR').classList.toggle('on',reg);
+  $('#tL').setAttribute('aria-selected',String(!reg));$('#tR').setAttribute('aria-selected',String(reg));
+  $('#fLogin').style.display=reg?'none':'';$('#fReg').style.display=reg?'':'none';msg.className='msg';msg.textContent='';
+};
+$('#tL').onclick=()=>tab(false); $('#tR').onclick=()=>tab(true);
+
+/* =========================
+   ตำแหน่ง / สังกัด — ดึงจาก /gov-config.js
+========================= */
+
+let syncAff = () => {};
+if (typeof fillAffiliation === 'function' && typeof wireAffiliationOther === 'function') {
+  fillAffiliation($('#aff'), true);
+  syncAff = wireAffiliationOther($('#aff'), $('#affOther'), $('#affo')) || syncAff;
+} else {
+  console.error('ไม่พบฟังก์ชันจาก /gov-config.js');
+  $('#aff').innerHTML = '<option value="">⚠️ โหลดรายการไม่ได้ (ตรวจสอบ /gov-config.js)</option>';
+}
+
+/* =========================
+   PDPA Version
+========================= */
+
+if (typeof PDPA_VERSION !== 'undefined') {
+  $('#pv').textContent = PDPA_VERSION;
+}
+
+/* =========================
+   PDPA Contact
+========================= */
+
+if (typeof ORG_CONTACT !== 'undefined') {
+  const c = ORG_CONTACT;
+
+  const parts = [
+    c.address && 'ที่อยู่: ' + c.address,
+    c.phone && 'โทร. ' + c.phone,
+    c.email && 'อีเมล: ' + c.email
+  ].filter(Boolean);
+
+  if (parts.length) {
+    $('#pdpaContact').textContent = parts.join(' • ');
+  }
+}
+
+/* =========================
+   แสดง / ซ่อนรหัสผ่าน
+========================= */
+
+document.querySelectorAll('[data-showpw]').forEach(checkbox => {
+
+  checkbox.addEventListener('change', () => {
+
+    const input = document.getElementById(
+      checkbox.dataset.showpw
+    );
+
+    if (!input) return;
+
+    input.type = checkbox.checked
+      ? 'text'
+      : 'password';
+
+  });
+
+});
+
+
+$('#fLogin').onsubmit=async e=>{e.preventDefault();
+  const b=e.target.querySelector('button');b.disabled=true;b.textContent='กำลังเข้าสู่ระบบ...';
+  try{
+    const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});
+    const d=await r.json();
+    if(!r.ok){show(d.error,'err');return;}
+    location.href=d.user.role==='admin'?'/admin.html':'/app.html';
+  }catch(err){show('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่อีกครั้ง','err');}
+  finally{b.disabled=false;b.textContent='เข้าสู่ระบบ →';}
+};
+$('#fReg').onsubmit=async e=>{e.preventDefault();
+  const b=e.target.querySelector('#registerBtn');b.disabled=true;b.textContent='กำลังส่งข้อมูล...';
+  try{
+    const r=await fetch('/api/register',{method:'POST',body:new FormData(e.target)});
+    const d=await r.json();
+    if(!r.ok){show(d.error,'err');return;}
+    show('✅ '+d.message,'ok');e.target.reset();syncAff();
+  }catch(err){show('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ กรุณาลองใหม่อีกครั้ง','err');}
+  finally{b.disabled=false;b.textContent='สมัครสมาชิก';}
+};
+fetch('/api/me').then(r=>r.ok&&r.json()).then(u=>{if(u&&u.status==='approved')
+  location.href=u.role==='admin'?'/admin.html':'/app.html'}).catch(()=>{});
+</script></body></html>

@@ -1,0 +1,737 @@
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>แผนที่บันทึกพิกัด | พมจ.นครปฐม</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link rel="stylesheet" href="/style.css">
+<style>
+#fAmp,#fTam{border:0;font:inherit;max-width:140px}
+/* ★ NEW: รูปเดิมในโหมดแก้ไข + ปุ่มลบ */
+.exist-ph{position:relative;display:inline-block;margin:2px}
+.exist-ph img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #dfe7f2}
+.exist-ph button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;
+  border:0;background:#e5484d;color:#fff;font-size:11px;cursor:pointer;line-height:1}
+.btn.danger{background:#e5484d;color:#fff}
+.btn.mini{padding:6px 12px;font-size:13px;border-radius:9px}
+</style>
+</head><body>
+
+<div class="topbar">
+  <div class="logo"><img src="/images/logo-msdhs.png" alt="ตราสัญลักษณ์กระทรวงการพัฒนาสังคมและความมั่นคงของมนุษย์"></div>
+  <h1>สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม — แผนที่พิกัดเคส<span>พัฒนาโดย จนท.ระบบงานคอมพิวเตอร์</span></h1>
+  <img id="av" class="avatar" src="" alt="โปรไฟล์">
+</div>
+
+<div class="chip-bar">
+  <div class="chip" id="chipCount">กำลังโหลด…</div>
+  <div class="chip" id="chipLoc">📍 ตำแหน่งฉัน</div>
+  <div class="chip" id="chipArea">🗺️ ตำบล: —</div>
+  <select class="chip" id="fAmp"><option value="">ทุกอำเภอ</option></select>
+  <select class="chip" id="fTam"><option value="">ทุกตำบล</option></select>
+  <div class="chip" id="chipStat">📊 สถิติ</div>
+</div>
+
+<div id="map"></div>
+<button class="btn fab" id="fab">➕ บันทึกพิกัด</button>
+
+<div class="sheet" id="sheetPoint"><div class="sheet-box"><div class="handle"></div>
+  <h3 id="pointTitle">📌 บันทึกพิกัดเคสใหม่</h3>
+  <div id="coordBox" style="background:#eef3fb;border-radius:13px;padding:11px 14px;font-size:13px;margin-bottom:10px"></div>
+  <button type="button" class="btn ghost mini" id="useGps" style="margin-bottom:14px;width:100%">📍 ใช้ตำแหน่ง GPS ปัจจุบัน</button><!-- ★ NEW -->
+  <form id="fPoint" enctype="multipart/form-data">
+    <input type="hidden" name="lat"><input type="hidden" name="lng"><input type="hidden" name="accuracy">
+    <div class="field"><label>พื้นที่ (ตรวจจากพิกัดอัตโนมัติ)</label>
+      <div class="grid2">
+        <select name="amphoe" id="selAmp"><option value="">— อำเภอ —</option></select>
+        <select name="tambon" id="selTam"><option value="">— ตำบล —</option></select>
+      </div>
+      <input name="moo" placeholder="หมู่ที่ (ถ้ามี)" style="margin-top:8px">
+      <small id="areaNote" style="color:#6b7a90"></small></div>
+    <div class="field"><label>ชื่อเคส *</label><input name="case_name" placeholder="เช่น นายสมชาย ใจดี" required></div>
+    <div class="field"><label>ลักษณะเคส *</label>
+      <select name="case_type" id="ct" required>
+        <option value="">— เลือกลักษณะ —</option>
+        <option>ผู้ป่วยติดเตียง</option>
+        <option>คนพิการ</option>
+        <option>เด็ก0-7ปี</option>
+        <option>ทั่วไป</option>
+        <option>ผู้สูงอายุ</option>
+        <option>พิการทางการเคลื่อนไหวหรือทางร่างกาย</option>
+        <option>พิการทางการได้ยินหรือสื่อความหมาย</option>
+        <option>พิการทางการเรียนรู้</option>
+        <option>พิการทางการเห็น</option>
+        <option>พิการทางจิตใจหรือพฤติกรรม</option>
+        <option>พิการทางสติปัญญา</option>
+        <option>พิการทางออทิสติก</option>
+        <option>พิการพิการซ้อน</option>
+        <option>อื่นๆ</option>
+      </select></div>
+    <div class="field" id="ctOther" style="display:none"><label>ระบุลักษณะ *</label><input name="case_type_other"></div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อผู้ดูแล</label><input name="caretaker_name"></div>
+      <div class="field"><label>เบอร์โทรผู้ดูแล</label><input name="caretaker_phone" type="tel"></div>
+    </div>
+    <div class="field"><label>ที่อยู่</label><textarea name="address" rows="2" placeholder="บ้านเลขที่ หมู่ ตำบล อำเภอ"></textarea></div>
+    <div class="field" id="existField" style="display:none"><label>รูปภาพปัจจุบัน (กด ✕ เพื่อลบรูปเดิม)</label><!-- ★ NEW -->
+      <div class="photo-row" id="existPrev"></div></div>
+    <div class="field"><label>เพิ่มรูปใหม่ (ถ่ายสด/เลือกไฟล์ ได้สูงสุด 6 รูป)</label>
+      <input type="file" name="photos" id="photos" accept="image/*" capture="environment" multiple>
+      <div class="photo-row" id="prev"></div></div>
+    <div class="field"><label>หมายเหตุ</label><textarea name="note" rows="2"></textarea></div>
+    <div style="display:flex;gap:10px">
+      <button type="button" class="btn ghost" id="cancelP">ยกเลิก</button>
+      <button type="submit" class="btn" id="savePoint">💾 บันทึกพิกัด</button>
+    </div>
+  </form>
+</div></div>
+
+<div class="sheet" id="sheetProfile"><div class="sheet-box"><div class="handle"></div>
+  <h3>👤 แก้ไขโปรไฟล์</h3>
+  <form id="fProfile" enctype="multipart/form-data">
+    <div style="text-align:center;margin-bottom:16px">
+      <img id="avBig" class="avatar" style="width:92px;height:92px" src="">
+      <div class="field" style="margin-top:10px"><input type="file" name="avatar" accept="image/*"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อ</label><input name="first_name"></div>
+      <div class="field"><label>นามสกุล</label><input name="last_name"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>ชื่อเล่น</label><input name="nickname"></div>
+      <div class="field"><label>เบอร์โทรศัพท์</label><input name="phone"></div>
+    </div>
+    <div class="field"><label>สังกัด</label>
+      <select name="affiliation" id="pAff">
+        <option>อพม.</option><option>นักพัฒนาสังคม</option><option>เจ้าหน้าที่</option>
+        <option>พม.</option><option>อื่นๆ</option></select></div>
+    <div class="field" id="pAffOther" style="display:none"><label>ระบุสังกัด</label><input name="affiliation_other"></div>
+    <div class="grid2">
+      <div class="field"><label>Facebook</label><input name="facebook" placeholder="ลิงก์หรือชื่อโปรไฟล์"></div>
+      <div class="field"><label>TikTok</label><input name="tiktok" placeholder="@username"></div>
+    </div>
+    <div class="grid2">
+      <div class="field"><label>LINE ID</label><input name="line_id"></div>
+      <div class="field"><label>เว็บไซต์</label><input name="website" placeholder="https://"></div>
+    </div>
+    <div class="field"><label>รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)</label><input name="password" type="password" minlength="6"></div>
+    <div style="display:flex;gap:10px">
+      <button type="button" class="btn ghost" id="logout">ออกจากระบบ</button>
+      <button type="submit" class="btn">บันทึกโปรไฟล์</button>
+    </div>
+  </form>
+</div></div>
+
+<div class="sheet" id="sheetDetail"><div class="sheet-box"><div class="handle"></div>
+  <div id="detail"></div>
+  <button class="btn ghost" id="closeD" style="margin-top:14px">ปิด</button>
+</div></div>
+
+<div class="sheet" id="sheetStat"><div class="sheet-box"><div class="handle"></div>
+  <h3>📊 สถิติรายพื้นที่</h3><div id="statBox"></div>
+  <button class="btn ghost" id="closeS" style="margin-top:14px">ปิด</button>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+/* ============================================================
+ * พมจ.นครปฐม — แผนที่พิกัดเคส (ฉบับสมบูรณ์)
+ * สิทธิ์แก้ไข: admin แก้ทุกเคส / เจ้าของแก้เคสตัวเอง / คนอื่นแก้ไม่ได้
+ * Auto-Detect ตำบล: server API + fallback คำนวณ GeoJSON ในเบราว์เซอร์
+ * ============================================================ */
+const $=s=>document.querySelector(s);
+const TYPES={'ผู้ป่วยติดเตียง':{c:'#e5484d',i:'🛏️'},'ผู้พิการ':{c:'#7c5cff',i:'♿'},
+  'เด็ก':{c:'#f0a500',i:'🧒'},'ผู้ยากไร้':{c:'#0f8f74',i:'🏠'},
+  'ผู้สูงอายุ':{c:'#2b7ef0',i:'👴'},'อื่นๆ':{c:'#6b7a90',i:'📍'}};
+
+let me=null, map, cluster, markers={}, picked=null, pickMarker=null, myLoc=null;
+let ADMIN={}, boundary=null, filt={amphoe:'',tambon:''}, _t;
+const PK=['ADM3_TH','tam_th','TAM_NAMT','tb_th','tambon','name'];
+const AK=['ADM2_TH','amp_th','AMP_NAMT','ap_th','amphoe'];
+
+/* ★ NEW: state โหมดแก้ไข + auto-detect */
+let editId=null, removedPhotoIds=[], existingPhotos=[], areaTouched=false, gpsArea=null, _gpsT=0;
+
+const toast=(t,k='ok')=>{const e=$('#toast');e.textContent=t;e.className='toast show '+k;
+  setTimeout(()=>e.className='toast '+k,3200)};
+const open=id=>$(id).classList.add('show');
+const close=id=>$(id).classList.remove('show');
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const label=s=>s==='approved'?'อนุมัติแล้ว':s==='pending'?'รออนุมัติ':'ไม่อนุมัติ';
+const areaTxt=p=>p.tambon?'อ.'+esc(p.amphoe||'-')+' ต.'+esc(p.tambon)+(p.moo?' หมู่ '+esc(p.moo):''):'ไม่ระบุตำบล';
+const fillAmp=(s,ph)=>s.innerHTML='<option value="">'+ph+'</option>'+Object.keys(ADMIN).map(a=>'<option>'+a+'</option>').join('');
+const fillTam=(s,a,ph)=>s.innerHTML='<option value="">'+ph+'</option>'+(ADMIN[a]||[]).map(t=>'<option>'+t+'</option>').join('');
+const canEditPoint=p=>me.role==='admin'||p.reporterId===me.id;   // ★ สิทธิ์แก้ไข
+document.querySelectorAll('.sheet').forEach(s=>s.onclick=e=>{if(e.target===s)s.classList.remove('show')});
+
+/* ============================================================
+ * ★ GEO DETECT v2 — ทำงานแม้ /api/geo/locate พัง
+ * 1) ลอง server ก่อน (ได้หมู่บ้านด้วยถ้ามี)
+ * 2) fallback: ray-casting จาก GeoJSON ขอบเขตที่โหลดไว้
+ * ============================================================ */
+const stripPrefix=s=>String(s==null?'':s).replace(/^(ตำบล|ต\.|อำเภอ|อ\.)\s*/,'').trim();
+const pick=(pr,ks)=>{const k=ks.find(x=>pr&&pr[x]!=null&&pr[x]!=='');return k?String(pr[k]):''};
+
+let rawGJ=null, GJ_INDEX=null;
+function buildGJIndex(){
+  if(GJ_INDEX||!rawGJ||!rawGJ.features) return;
+  GJ_INDEX=[];
+  for(const f of rawGJ.features){
+    if(!f.geometry) continue;
+    let minX=999,minY=999,maxX=-999,maxY=-999;
+    (function walk(c){
+      if(typeof c[0]==='number'){
+        if(c[0]<minX)minX=c[0]; if(c[0]>maxX)maxX=c[0];
+        if(c[1]<minY)minY=c[1]; if(c[1]>maxY)maxY=c[1];
+      } else c.forEach(walk);
+    })(f.geometry.coordinates);
+    GJ_INDEX.push({f,bbox:[minX,minY,maxX,maxY]});
+  }
+}
+function pointInRing(lat,lng,ring){
+  let inside=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+    if(((yi>lat)!==(yj>lat))&&(lng<(xj-xi)*(lat-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+function pointInGeom(lat,lng,geom){
+  const polys=geom.type==='Polygon'?[geom.coordinates]
+    :geom.type==='MultiPolygon'?geom.coordinates:[];
+  return polys.some(poly=>pointInRing(lat,lng,poly[0])
+    &&poly.slice(1).every(h=>!pointInRing(lat,lng,h)));
+}
+function lookupLocal(lat,lng){
+  buildGJIndex(); if(!GJ_INDEX) return null;
+  for(const {f,bbox} of GJ_INDEX){
+    if(lng<bbox[0]||lng>bbox[2]||lat<bbox[1]||lat>bbox[3]) continue;
+    if(!pointInGeom(lat,lng,f.geometry)) continue;
+    const pr=f.properties||{};
+    return {tambon:stripPrefix(pick(pr,PK)),amphoe:stripPrefix(pick(pr,AK)),moo:pr.moo||''};
+  }
+  return null;
+}
+async function locate(lat,lng){
+  try{
+    const r=await fetch('/api/geo/locate?lat='+lat+'&lng='+lng);
+    if(r.ok){
+      const j=await r.json();
+      if(j&&(j.tambon||j.amphoe))
+        return {amphoe:stripPrefix(j.amphoe),tambon:stripPrefix(j.tambon),
+                moo:j.moo||'',inProvince:j.inProvince};
+    } else console.warn('[geo] /api/geo/locate → HTTP',r.status);
+  }catch(e){console.warn('[geo] locate server error:',e)}
+  const local=lookupLocal(lat,lng);
+  if(!local) console.warn('[geo] หาเขตไม่เจอ @',lat,lng,'(อาจอยู่นอกจ.นครปฐม หรือขอบเขตยังโหลดไม่เสร็จ)');
+  return local;
+}
+function matchKey(dict,name){
+  if(!name) return '';
+  if(dict[name]!=null) return name;
+  const k=Object.keys(dict).find(k=>k.includes(name)||name.includes(k));
+  if(!k) console.warn('[geo] ชื่อไม่ตรง dropdown:',name,'| มี:',Object.keys(dict));
+  return k||'';
+}
+
+/* ---------- Bootstrap ---------- */
+(async()=>{
+  const r=await fetch('/api/me'); if(!r.ok) return location.href='/';
+  me=await r.json(); if(me.status!=='approved') return location.href='/';
+  const fallback='https://api.dicebear.com/7.x/initials/svg?seed='+encodeURIComponent(me.nickname||me.firstName||'U');
+  $('#av').src=$('#avBig').src=me.avatar||fallback;
+  initMap(); initGeo(); loadPoints(); initSocket();
+})();
+
+/* ============================================================
+ * MAP
+ * ============================================================ */
+function initMap(){
+  map=L.map('map',{zoomControl:false}).setView([13.8199,100.0621],12);
+  L.control.zoom({position:'bottomleft'}).addTo(map);
+  const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,crossOrigin:true,
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'});
+  const topo=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{
+    maxZoom:17,subdomains:'abc',crossOrigin:true,
+    attribution:'&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap'});
+  const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
+    maxZoom:19,crossOrigin:true,
+    attribution:'Tiles &copy; Esri, Maxar, Earthstar Geographics'});
+  osm.addTo(map);
+  window.layersCtl=L.control.layers(
+    {'แผนที่ถนน':osm,'ภาพถ่ายดาวเทียม':sat,'ภูมิประเทศ':topo},
+    null,{position:'topright',collapsed:true}).addTo(map);
+  osm.on('tileerror',()=>{
+    if(window._tileWarned) return;
+    window._tileWarned=true;
+    toast('โหลดแผนที่ไม่สำเร็จ — ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต','err');
+  });
+  cluster=L.markerClusterGroup({maxClusterRadius:45}).addTo(map);
+
+  map.on('click',e=>setPick(e.latlng.lat,e.latlng.lng));
+  map.on('contextmenu',e=>setPick(e.latlng.lat,e.latlng.lng));
+
+  if(navigator.geolocation) navigator.geolocation.watchPosition(p=>{
+    window._acc=Math.round(p.coords.accuracy);
+    myLoc=[p.coords.latitude,p.coords.longitude];
+    if(!window._meM){
+      window._meM=L.circleMarker(myLoc,{radius:8,color:'#fff',weight:3,
+        fillColor:'#2b7ef0',fillOpacity:1}).addTo(map).bindTooltip('คุณอยู่ที่นี่');
+      map.setView(myLoc,16);
+    } else window._meM.setLatLng(myLoc);
+    gpsAreaCheck(myLoc[0],myLoc[1]);        // ★ เดินข้ามตำบล → chip เปลี่ยนอัตโนมัติ
+  },()=>toast('เปิดการเข้าถึงตำแหน่งเพื่อใช้งานได้เต็มที่','err'),{enableHighAccuracy:true});
+}
+
+/* ============================================================
+ * GEO INIT — dropdown + เส้นเขต + สร้าง dropdown เองถ้า API พัง
+ * ============================================================ */
+async function initGeo(){
+  try{const j=await (await fetch('/api/geo/admin')).json();ADMIN=j.amphoes||j}
+  catch(e){console.warn('[geo] /api/geo/admin fail:',e)}
+  fillAmp($('#fAmp'),'ทุกอำเภอ'); fillAmp($('#selAmp'),'— อำเภอ —');
+  fillTam($('#fTam'),'','ทุกตำบล'); fillTam($('#selTam'),'','— ตำบล —');
+  try{
+    const r=await fetch('/api/geo/boundaries'); if(!r.ok) throw new Error('HTTP '+r.status);
+    rawGJ=await r.json();                                   // ★ เก็บดิบไว้ใช้ fallback
+    const AC={'เมืองนครปฐม':'#e5484d','กำแพงแสน':'#2b7ef0','ดอนตูม':'#7c5cff','นครชัยศรี':'#f0a500',
+      'บางเลน':'#0f8f74','พุทธมณฑล':'#d6409f','สามพราน':'#0b7285'};
+    const col=f=>AC[stripPrefix(pick(f.properties||{},AK))]||'#6b7a90';
+    boundary=L.geoJSON(rawGJ,{
+      style:f=>({color:col(f),weight:2,opacity:.9,dashArray:'7 6',lineCap:'round',fillColor:col(f),fillOpacity:.05}),
+      onEachFeature:(f,l)=>{
+        const pr=f.properties||{},t=stripPrefix(pick(pr,PK)),a=stripPrefix(pick(pr,AK));
+        l.bindTooltip(t?('ต.'+t+(a?' อ.'+a:'')):'',{sticky:true});
+        l.on('mouseover',()=>l.setStyle({weight:3.5,fillOpacity:.16}));
+        l.on('mouseout',()=>boundary.resetStyle(l));
+      }
+    }).addTo(map);
+    boundary.bringToBack();
+    if(window.layersCtl) layersCtl.addOverlay(boundary,'เส้นปะเขตตำบล');
+  }catch(e){console.warn('[geo] boundaries fail:',e)}
+  /* ★ /api/geo/admin พัง? → สร้างรายการอำเภอ/ตำบลจาก GeoJSON เอง */
+  if(!Object.keys(ADMIN).length&&rawGJ&&rawGJ.features){
+    ADMIN={};
+    rawGJ.features.forEach(f=>{
+      const pr=f.properties||{};
+      const a=stripPrefix(pick(pr,AK)),t=stripPrefix(pick(pr,PK));
+      if(a&&t){(ADMIN[a]=ADMIN[a]||[]);if(!ADMIN[a].includes(t))ADMIN[a].push(t);}
+    });
+    fillAmp($('#fAmp'),'ทุกอำเภอ'); fillAmp($('#selAmp'),'— อำเภอ —');
+    fillTam($('#fTam'),'','ทุกตำบล'); fillTam($('#selTam'),'','— ตำบล —');
+    console.log('[geo] สร้าง dropdown จาก GeoJSON:',Object.keys(ADMIN));
+  }
+  map.on('moveend',updateAreaChip); updateAreaChip();
+}
+
+/* ★ GPS → ตำบล (throttle 20 วิ) — แสดง chip + อัปเดตฟอร์มถ้าเปิดอยู่ */
+function gpsAreaCheck(lat,lng){
+  const now=Date.now(); if(now-_gpsT<20000) return; _gpsT=now;
+  locate(lat,lng).then(a=>{
+    gpsArea=(a&&a.tambon)?a:null;
+    if(gpsArea){
+      $('#chipArea').textContent='🗺️ ต.'+gpsArea.tambon+' อ.'+gpsArea.amphoe+(gpsArea.moo?' หมู่'+gpsArea.moo:'');
+      if($('#sheetPoint').classList.contains('show')&&!areaTouched&&!picked) applyArea(gpsArea,true);
+    }
+  });
+}
+function updateAreaChip(){clearTimeout(_t);_t=setTimeout(async()=>{
+  if(gpsArea){$('#chipArea').textContent='🗺️ ต.'+gpsArea.tambon+' อ.'+gpsArea.amphoe;return;}
+  const c=map.getCenter(),a=await locate(c.lat,c.lng);
+  $('#chipArea').textContent=a&&a.tambon?'🗺️ อ.'+a.amphoe+' ต.'+a.tambon:'🗺️ ตำบล: —';},400)}
+
+async function detectArea(){if(picked) applyArea(await locate(picked[0],picked[1]),true)}
+
+/* ★ applyArea: force=ลากหมุด/เปิดฟอร์ม → เติมทับเสมอ / ไม่ force → ไม่ทับถ้า user เลือกเอง */
+function applyArea(a,force){
+  const note=$('#areaNote');
+  if(a&&a.inProvince===false){note.textContent='⚠️ พิกัดอยู่นอกจังหวัดนครปฐม';return;}
+  if(!a||(!a.tambon&&!a.amphoe)){
+    note.textContent='⚠️ ตรวจเขตไม่สำเร็จ — พิกัดอาจอยู่นอกพื้นที่ในระบบ หรือขอบเขตยังโหลดไม่เสร็จ';return;}
+  if(!force&&areaTouched){
+    note.textContent='📍 GPS ตรวจพบ: อ.'+(a.amphoe||'?')+' ต.'+(a.tambon||'?')+' (คุณเลือกเองไว้แล้ว)';return;}
+  const ampKey=matchKey(ADMIN,a.amphoe);
+  $('#selAmp').value=ampKey;
+  fillTam($('#selTam'),ampKey,'— ตำบล —');
+  const tams=ADMIN[ampKey]||[];
+  $('#selTam').value=tams.includes(a.tambon)?a.tambon:'';
+  note.textContent='✅ ตรวจจากพิกัดอัตโนมัติ: อ.'+(a.amphoe||'-')+' ต.'+(a.tambon||'-')+(a.moo?' หมู่ '+a.moo:'')
+    +($('#selTam').value?'':' — ⚠️ ชื่อตำบลไม่ตรงรายการ โปรดเลือกเอง');
+}
+
+/* ★ user เลือกเอง = ตั้งสถานะ touched → GPS จะไม่ทับ */
+ $('#selAmp').onchange=e=>{fillTam($('#selTam'),e.target.value,'— ตำบล —');areaTouched=true};
+ $('#selTam').onchange=()=>areaTouched=true;
+ $('#fAmp').onchange=e=>{filt.amphoe=e.target.value;filt.tambon='';fillTam($('#fTam'),filt.amphoe,'ทุกตำบล');loadPoints(true)};
+ $('#fTam').onchange=e=>{filt.tambon=e.target.value;loadPoints(true)};
+
+/* ============================================================
+ * PICK / หมุดเลือกจุด — ซิงค์ hidden lat/lng ทุกครั้ง (★ แก้บั๊กสำคัญ)
+ * ============================================================ */
+function setPick(lat,lng){
+  picked=[lat,lng];
+  if(pickMarker) pickMarker.setLatLng(picked);
+  else{
+    pickMarker=L.marker(picked,{draggable:true}).addTo(map)
+      .bindTooltip('จุดที่เลือก — ลากเพื่อปรับ',{permanent:true,direction:'top'}).openTooltip();
+    pickMarker.on('dragend',ev=>{const p=ev.target.getLatLng();picked=[p.lat,p.lng];syncHidden();detectArea();});
+  }
+  syncHidden();
+  detectArea();
+}
+function syncHidden(){
+  if($('#sheetPoint').classList.contains('show')&&picked){
+    $('#fPoint').lat.value=picked[0]; $('#fPoint').lng.value=picked[1];
+    $('#coordBox').innerHTML='📍 <b>พิกัด</b><br>Lat: '+picked[0].toFixed(6)+' , Lng: '+picked[1].toFixed(6);
+  }
+}
+
+function icon(t){
+  const s=TYPES[t]||TYPES['อื่นๆ'];
+  return L.divIcon({className:'',iconSize:[34,34],iconAnchor:[17,32],popupAnchor:[0,-28],
+    html:'<div class="pin" style="background:'+s.c+'"><i>'+s.i+'</i></div>'});
+}
+
+async function fetchAndAddMarker(id){
+  try{const res=await fetch('/api/points/'+id);if(res.ok)addMarkerToMap(await res.json())}catch(e){}
+}
+
+function addMarkerToMap(p){
+  if(markers[p.id]) cluster.removeLayer(markers[p.id]);
+  if((filt.amphoe&&p.amphoe!==filt.amphoe)||(filt.tambon&&p.tambon!==filt.tambon)){delete markers[p.id];return;}
+  if(p.status==='rejected'&&p.reporterId!==me.id){delete markers[p.id];return;}
+  const t=p.caseType==='อื่นๆ'?(p.caseTypeOther||'อื่นๆ'):p.caseType;
+  const own=p.reporterId===me.id&&p.status==='pending';
+  const m=L.marker([p.lat,p.lng],{icon:icon(p.caseType),draggable:own});
+  if(own) m.on('dragend',async ev=>{
+    const ll=ev.target.getLatLng();
+    const r=await fetch('/api/points/'+p.id+'/location',{method:'PUT',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:ll.lat,lng:ll.lng})});
+    const d=await r.json();
+    if(!r.ok){toast(d.error,'err');loadPoints();return;}
+    toast(d.warning?'⚠️ '+d.warning:'✅ ย้ายหมุดแล้ว: ต.'+(d.point.tambon||'-'),d.warning?'err':'ok');
+  });
+  m.bindPopup('<div class="pop"><h4>'+esc(p.caseName)+'</h4>'+
+    '<p>🏷️ '+esc(t)+'</p><p>📞 '+esc(p.caretakerPhone||'-')+'</p>'+
+    '<p>🗺️ '+areaTxt(p)+'</p>'+
+    '<p>👤 '+esc(p.reporter.name)+'</p>'+
+    '<span class="badge b-'+p.status+'">'+label(p.status)+'</span>'+
+    '<button class="btn sm" style="margin-top:10px;width:100%" onclick="detail('+p.id+')">ดูรายละเอียด</button></div>');
+  m.bindTooltip(p.caseName,{direction:'top',offset:[0,-28]});
+  markers[p.id]=m; cluster.addLayer(m); updateCount();
+}
+const updateCount=()=>$('#chipCount').textContent='🗺️ '+Object.keys(markers).length+' จุด';
+
+async function loadPoints(fit){
+  const q=new URLSearchParams();
+  if(filt.amphoe)q.set('amphoe',filt.amphoe); if(filt.tambon)q.set('tambon',filt.tambon);
+  const d=await (await fetch('/api/points?'+q)).json();
+  cluster.clearLayers(); markers={}; d.forEach(addMarkerToMap); updateCount();
+  if(fit&&d.length) map.fitBounds(L.latLngBounds(d.map(p=>[p.lat,p.lng])),{padding:[40,40],maxZoom:16});
+}
+
+function initSocket(){
+  const s=io();
+  s.on('point:update-hint',d=>fetchAndAddMarker(d.id));
+  s.on('point:removed',d=>{if(markers[d.id]){cluster.removeLayer(markers[d.id]);delete markers[d.id];updateCount();}});
+  s.on('point:mine',p=>addMarkerToMap(p));
+  s.on('user:status',d=>{if(d.status!=='approved'){alert('สถานะบัญชีของคุณถูกเปลี่ยนโดยผู้ดูแลระบบ');location.href='/';}});
+}
+
+/* ============================================================
+ * FAB — เปิดฟอร์ม "สร้างใหม่" + auto-detect ตำบลทันที
+ * ============================================================ */
+ $('#fab').onclick=async()=>{
+  if(editId) resetPointForm();                 // ★ ถ้าค้างโหมดแก้ไข → รีเซ็ตก่อน
+  const c=picked||myLoc;
+  if(!c) return toast('ยังไม่ทราบตำแหน่ง — คลิกบนแผนที่เพื่อเลือกจุด','err');
+  $('#fPoint').lat.value=c[0]; $('#fPoint').lng.value=c[1];
+  $('#coordBox').innerHTML='📍 <b>พิกัดที่จะบันทึก</b><br>Lat: '+c[0].toFixed(6)+' , Lng: '+c[1].toFixed(6)+
+    '<br><span style="color:#6b7a90">'+(picked?'จุดที่เลือกบนแผนที่':'ตำแหน่ง GPS ปัจจุบัน')+'</span>';
+  $('#fPoint').accuracy.value=(!picked&&window._acc)?window._acc:'';
+  areaTouched=false;
+  fillTam($('#selTam'),'','— ตำบล —'); $('#selAmp').value='';
+  open('#sheetPoint');
+  applyArea(await locate(c[0],c[1]),true);     // ★ auto-fill ตำบลทันที
+};
+
+/* ★ ปุ่มใช้ตำแหน่ง GPS ปัจจุบันในฟอร์ม */
+ $('#useGps').onclick=()=>{
+  if(!myLoc) return toast('ยังไม่ได้รับตำแหน่ง GPS','err');
+  areaTouched=false; picked=[myLoc[0],myLoc[1]];
+  setPick(myLoc[0],myLoc[1]);
+  $('#fPoint').accuracy.value=window._acc||'';
+  toast('📍 ใช้ตำแหน่ง GPS ปัจจุบันแล้ว');
+};
+
+ $('#cancelP').onclick=()=>{resetPointForm();close('#sheetPoint')};
+ $('#ct').onchange=e=>{const o=e.target.value==='อื่นๆ';$('#ctOther').style.display=o?'':'none';
+  $('#ctOther input').required=o};
+ $('#photos').onchange=e=>{$('#prev').innerHTML='';
+  Array.from(e.target.files).slice(0,6).forEach(f=>{const i=new Image();i.src=URL.createObjectURL(f);$('#prev').appendChild(i)})};
+
+/* ============================================================
+ * ★ รูปเดิมตอนแก้ไข
+ * ============================================================ */
+function renderExistingPhotos(){
+  $('#existPrev').innerHTML=existingPhotos.map(id=>
+    '<span class="exist-ph"><img src="/api/photos/'+id+'">'+
+    '<button type="button" title="ลบรูปนี้" onclick="removeExist('+id+')">✕</button></span>').join('');
+  $('#existField').style.display=existingPhotos.length?'':'none';
+}
+function removeExist(id){
+  removedPhotoIds.push(id);
+  existingPhotos=existingPhotos.filter(x=>String(x)!==String(id));
+  renderExistingPhotos();
+}
+
+/* ============================================================
+ * ★ โหมดแก้ไข — admin ทุกเคส / เจ้าของเคสตัวเอง
+ * ============================================================ */
+async function startEdit(id){
+  const r=await fetch('/api/points/'+id);
+  if(!r.ok) return toast('โหลดข้อมูลเพื่อแก้ไขไม่สำเร็จ','err');
+  const p=await r.json();
+  close('#sheetDetail');
+  editId=id; removedPhotoIds=[]; areaTouched=false;
+  existingPhotos=(p.photos||[]).map(u=>u.split('/').pop());
+
+  const f=$('#fPoint');
+  f.lat.value=p.lat; f.lng.value=p.lng; f.accuracy.value=p.accuracy??'';
+  f.case_name.value=p.caseName||''; f.case_type.value=p.caseType||'';
+  const isOther=p.caseType==='อื่นๆ';
+  $('#ctOther').style.display=isOther?'':'none'; $('#ctOther input').required=isOther;
+  f.case_type_other.value=p.caseTypeOther||'';
+  f.caretaker_name.value=p.caretakerName||'';
+  f.caretaker_phone.value=p.caretakerPhone||'';
+  f.address.value=p.address||'';
+  f.note.value=p.note||'';
+  f.moo.value=p.moo||'';
+  fillTam($('#selTam'),p.amphoe||'','— ตำบล —');
+  $('#selAmp').value=p.amphoe||''; $('#selTam').value=p.tambon||'';
+  $('#areaNote').textContent='พื้นที่เดิม: อ.'+(p.amphoe||'-')+' ต.'+(p.tambon||'-')+' — ลากหมุดเพื่อย้ายจุด (ระบบจะตรวจตำบลใหม่ให้อัตโนมัติ)';
+  $('#coordBox').innerHTML='📍 <b>พิกัดเดิม</b><br>Lat: '+p.lat.toFixed(6)+' , Lng: '+p.lng.toFixed(6);
+  renderExistingPhotos(); $('#prev').innerHTML='';
+  f.photos.value='';
+
+  setPick(p.lat,p.lng);                        // วางหมุดที่ตำแหน่งเดิม (ลากย้ายได้ → ตรวจตำบลใหม่ทันที)
+  $('#pointTitle').textContent='✏️ แก้ไขพิกัดเคส #'+id;
+  $('#savePoint').textContent='💾 บันทึกการแก้ไข';
+  open('#sheetPoint');
+  if(me.role!=='admin'&&p.status==='approved')
+    toast('ℹ️ เคสนี้อนุมัติแล้ว — บันทึกแก้ไขจะส่งกลับไปรอผู้ดูแลตรวจใหม่','err');
+}
+
+/* ★ รีเซ็ตฟอร์มกลับสู่โหมดสร้าง */
+function resetPointForm(){
+  editId=null; removedPhotoIds=[]; existingPhotos=[]; areaTouched=false;
+  const f=$('#fPoint'); f.reset();
+  $('#prev').innerHTML=''; $('#existPrev').innerHTML='';
+  $('#existField').style.display='none';
+  $('#ctOther').style.display='none'; $('#ctOther input').required=false;
+  $('#pointTitle').textContent='📌 บันทึกพิกัดเคสใหม่';
+  $('#savePoint').textContent='💾 บันทึกพิกัด';
+  $('#areaNote').textContent=''; $('#coordBox').innerHTML='';
+  if(pickMarker){map.removeLayer(pickMarker);pickMarker=null;picked=null;}
+}
+
+/* ============================================================
+ * SUBMIT — สร้างใหม่ (POST) / แก้ไข (PUT)
+ * ============================================================ */
+ $('#fPoint').onsubmit=async e=>{
+  e.preventDefault();
+  const btn=$('#savePoint'); btn.disabled=true;
+  btn.textContent=editId?'กำลังบันทึกการแก้ไข...':'กำลังบันทึก...';
+  try{
+    const fd=new FormData(e.target);
+    if(editId){
+      if(removedPhotoIds.length) fd.append('removePhotos',JSON.stringify(removedPhotoIds));
+      const r=await fetch('/api/points/'+editId,{method:'PUT',body:fd});
+      const d=await r.json();
+      if(!r.ok){toast(d.error,'err');return;}
+      close('#sheetPoint'); resetPointForm();
+      addMarkerToMap(d.point);
+      toast('✅ '+(d.message||'แก้ไขสำเร็จ'));
+      if(d.statusChanged) setTimeout(()=>toast('⏳ เคสถูกส่งกลับไปรอผู้ดูแลอนุมัติ','err'),3400);
+    }else{
+      const r=await fetch('/api/points',{method:'POST',body:fd});
+      const d=await r.json();
+      if(!r.ok){toast(d.error,'err');return;}
+      close('#sheetPoint'); resetPointForm();
+      addMarkerToMap(d.point);
+      toast('✅ บันทึกพิกัดสำเร็จ! รอผู้ดูแลระบบอนุมัติ');if(d.warning)setTimeout(()=>toast('⚠️ '+d.warning,'err'),3400);
+    }
+  }catch(err){toast('บันทึกไม่สำเร็จ ตรวจสอบการเชื่อมต่อ','err');}
+  finally{btn.disabled=false;btn.textContent=editId?'💾 บันทึกการแก้ไข':'💾 บันทึกพิกัด';}
+};
+
+/* ============================================================
+ * DETAIL — แสดงปุ่มแก้ไข/ลบตามสิทธิ์
+ * ============================================================ */
+async function detail(id){
+  const r=await fetch('/api/points/'+id);
+  if(!r.ok) return toast('ไม่พบข้อมูลหรือไม่มีสิทธิ์เข้าถึง','err');
+  const p=await r.json();
+  const t=p.caseType==='อื่นๆ'?(p.caseTypeOther||'อื่นๆ'):p.caseType;
+  const edit=canEditPoint(p);
+  const del=me.role==='admin'||(p.reporterId===me.id&&p.status==='pending');
+  $('#detail').innerHTML='<h3>'+esc(p.caseName)+'</h3>'+
+    '<span class="badge b-'+p.status+'">'+label(p.status)+'</span>'+
+    '<div style="font-size:14px;line-height:2;margin-top:12px">'+
+      '<div>🏷️ <b>ลักษณะ:</b> '+esc(t)+'</div>'+
+      '<div>👤 <b>ผู้ดูแล:</b> '+esc(p.caretakerName||'-')+'</div>'+
+      '<div>📞 <b>โทร:</b> '+(p.caretakerPhone?'<a href="tel:'+esc(p.caretakerPhone)+'">'+esc(p.caretakerPhone)+'</a>':'-')+'</div>'+
+      '<div>🏠 <b>ที่อยู่:</b> '+esc(p.address||'-')+'</div>'+
+      '<div>📝 <b>หมายเหตุ:</b> '+esc(p.note||'-')+'</div>'+
+      '<div>📍 <b>พิกัด:</b> '+p.lat.toFixed(6)+', '+p.lng.toFixed(6)+'</div>'+
+      '<div>🗺️ <b>พื้นที่:</b> '+areaTxt(p)+'</div>'+
+      '<div>🧑‍💼 <b>ผู้บันทึก:</b> '+esc(p.reporter.name)+' — '+esc(p.reporter.affiliation||'-')+'</div>'+
+      '<div>🕒 '+esc(p.createdAt)+'</div>'+
+      (p.updatedAt?'<div>✏️ <b>แก้ไขล่าสุด:</b> '+esc(p.updatedAt)+'</div>':'')+
+      (p.status==='rejected'&&p.rejectReason?'<div>⚠️ <b>เหตุผลที่ไม่อนุมัติ:</b> '+esc(p.rejectReason)+'</div>':'')+
+    '</div>'+
+    '<div class="photo-row">'+p.photos.map(f=>'<a href="'+f+'" target="_blank"><img src="'+f+'"></a>').join('')+'</div>'+
+    '<a class="btn ok" style="margin-top:14px" target="_blank" href="https://www.google.com/maps/dir/?api=1&destination='+p.lat+','+p.lng+'">🧭 นำทางไปยังจุดนี้</a>'+
+    (edit||del?'<div style="display:flex;gap:10px;margin-top:10px">'+
+      (edit?'<button class="btn" style="flex:1" onclick="startEdit('+p.id+')">✏️ แก้ไขข้อมูล</button>':'')+
+      (del?'<button class="btn danger" style="flex:1" onclick="deletePoint('+p.id+')">🗑️ ลบ</button>':'')+
+    '</div>':'');
+  open('#sheetDetail');
+}
+
+/* ★ ลบพิกัด */
+async function deletePoint(id){
+  if(!confirm('ยืนยันการลบพิกัดนี้? การลบไม่สามารถย้อนกลับได้')) return;
+  const r=await fetch('/api/points/'+id,{method:'DELETE'});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  close('#sheetDetail');
+  if(markers[id]){cluster.removeLayer(markers[id]);delete markers[id];updateCount();}
+  toast('🗑️ ลบพิกัดสำเร็จ');
+}
+
+ $('#closeD').onclick=()=>close('#sheetDetail');
+ $('#chipLoc').onclick=()=>myLoc?map.setView(myLoc,17):toast('ยังไม่ได้รับตำแหน่ง','err');
+
+ $('#chipStat').onclick=async()=>{
+  const r=await fetch('/api/stats/area'); if(!r.ok) return toast('โหลดสถิติไม่ได้','err');
+  const as=Object.entries((await r.json()).amphoes).sort((a,b)=>b[1].total-a[1].total);
+  $('#statBox').innerHTML=as.length?as.map(([a,v])=>'<details><summary><b>อ.'+esc(a)+'</b> — '+v.total+' จุด</summary>'+
+    Object.entries(v.tambons).sort((x,y)=>y[1].total-x[1].total).map(([t,tv])=>
+      '<div style="padding:5px 0 5px 14px;font-size:13.5px">ต.'+esc(t)+' <b>'+tv.total+'</b> <small style="color:#6b7a90">'+
+      Object.entries(tv.types).map(([k,n])=>esc(k)+' '+n).join(' • ')+'</small></div>').join('')+'</details>').join('')
+    :'<p style="text-align:center;color:#6b7a90">ยังไม่มีข้อมูล</p>';
+  open('#sheetStat');
+};
+ $('#closeS').onclick=()=>close('#sheetStat');
+
+/* ============================================================
+ * PROFILE
+ * ============================================================ */
+ $('#av').onclick=()=>{
+  const f=$('#fProfile');
+  f.first_name.value=me.firstName||''; f.last_name.value=me.lastName||'';
+  f.nickname.value=me.nickname||''; f.phone.value=me.phone||'';
+  f.affiliation.value=me.affiliation||'เจ้าหน้าที่'; f.affiliation_other.value=me.affiliationOther||'';
+  f.facebook.value=me.facebook||''; f.tiktok.value=me.tiktok||'';
+  f.line_id.value=me.lineId||''; f.website.value=me.website||'';
+  f.password.value='';
+  $('#pAffOther').style.display=me.affiliation==='อื่นๆ'?'':'none';
+  open('#sheetProfile');
+};
+ $('#pAff').onchange=e=>$('#pAffOther').style.display=e.target.value==='อื่นๆ'?'':'none';
+ $('#fProfile').onsubmit=async e=>{
+  e.preventDefault();
+  const pfd=new FormData(e.target);if(pfd.get('password')){const cur=prompt('กรอกรหัสผ่านปัจจุบันเพื่อยืนยันการเปลี่ยนรหัสผ่าน');if(!cur)return toast('ยกเลิกการเปลี่ยนรหัสผ่าน','err');pfd.append('current_password',cur);}else pfd.delete('password');const r=await fetch('/api/profile',{method:'PUT',body:pfd});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  me=d.user;
+  if(me.avatar){$('#av').src=$('#avBig').src=me.avatar+'?t='+Date.now();}
+  close('#sheetProfile'); toast('✅ บันทึกโปรไฟล์สำเร็จ');
+};
+ $('#logout').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/'};
+</script>
+<script>
+/*SCALE-PATCH*/
+(()=>{
+const st=document.createElement('style');
+st.textContent='.clb{border-radius:50%;background:rgba(31,111,235,.88);color:#fff;text-align:center;font:700 13px system-ui,sans-serif;border:3px solid rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.3);box-sizing:border-box}';
+document.head.appendChild(st);
+
+let vLayer=null,ctl=null,tmr=null,wired=false,mineDone=false;
+const nice=n=>n>=1e4?Math.round(n/1e3)+'k':n>=1e3?(n/1e3).toFixed(1)+'k':String(n);
+const clIcon=n=>{const s=n>=1e4?60:n>=1e3?52:n>=100?44:n>1?38:26;
+  return L.divIcon({className:'',iconSize:[s,s],html:'<div class="clb" style="width:'+s+'px;height:'+s+'px;line-height:'+(s-6)+'px">'+(n>1?nice(n):'')+'</div>'})};
+const later=ms=>{clearTimeout(tmr);tmr=setTimeout(()=>loadPoints(),ms)};
+
+function fitFilter(){            // กรองอำเภอ/ตำบล → ซูมไปที่เขตนั้น
+  if(!boundary) return false;
+  let b=null;
+  boundary.eachLayer(l=>{
+    const pr=(l.feature&&l.feature.properties)||{};
+    const t=stripPrefix(pick(pr,PK)),a=stripPrefix(pick(pr,AK));
+    const ok=filt.tambon?(t===filt.tambon&&(!filt.amphoe||a===filt.amphoe)):(a===filt.amphoe);
+    if(ok){const lb=l.getBounds();b=b?b.extend(lb):L.latLngBounds(lb.getSouthWest(),lb.getNorthEast())}
+  });
+  if(b){map.fitBounds(b,{padding:[30,30]});return true}
+  return false;
+}
+
+/* โหลดเฉพาะสิ่งที่อยู่ในกรอบจอ: ซูมไกล = กลุ่มนับจำนวน (SQL), ซูม ≥16 = หมุดจริง */
+loadPoints=async function(fit){
+  if(!map) return;
+  if(!vLayer) vLayer=L.layerGroup().addTo(map);
+  if(!wired){wired=true;map.on('moveend',()=>later(250));setInterval(()=>{if(!document.hidden)loadPoints()},60000)}
+  if(!mineDone&&me){mineDone=true;loadMine()}
+  if(fit&&(filt.amphoe||filt.tambon)&&fitFilter()) return;   // fitBounds จะทำให้ moveend โหลดต่อเอง
+
+  ctl&&ctl.abort(); ctl=new AbortController();
+  const b=map.getBounds().pad(.15);
+  const q=new URLSearchParams({zoom:map.getZoom(),bbox:[b.getWest(),b.getSouth(),b.getEast(),b.getNorth()].join(',')});
+  if(filt.amphoe)q.set('amphoe',filt.amphoe);
+  if(filt.tambon)q.set('tambon',filt.tambon);
+  let d;
+  try{const r=await fetch('/api/points/clusters?'+q,{signal:ctl.signal});if(!r.ok)return;d=await r.json()}
+  catch(e){return}
+
+  vLayer.clearLayers(); let total=0;
+  if(d.mode==='points'){
+    d.items.forEach(i=>{total++;
+      vLayer.addLayer(L.marker([i.lat,i.lng],{icon:icon(i.caseType)}).on('click',()=>detail(i.id))
+        .bindTooltip(i.caseName,{direction:'top',offset:[0,-28]}));});
+  }else{
+    d.items.forEach(c=>{total+=c.n;
+      const m=L.marker([c.lat,c.lng],{icon:clIcon(c.n)});
+      m.on('click',()=>{
+        if(c.n===1) return detail(c.id);
+        if(c.minLat===c.maxLat&&c.minLng===c.maxLng) return map.setView([c.lat,c.lng],17);
+        map.fitBounds([[c.minLat,c.minLng],[c.maxLat,c.maxLng]],{padding:[50,50],maxZoom:17});
+      });
+      vLayer.addLayer(m);});
+  }
+  $('#chipCount').textContent='🗺️ '+total.toLocaleString('th-TH')+' จุดในมุมมอง'+(d.mode==='clusters'&&d.count>=1000?'+':'');
+};
+
+/* เคสของตัวเองที่ยังไม่อนุมัติ/ถูกปฏิเสธ → แสดงแยก (ลากย้ายได้เหมือนเดิม) */
+const _add=addMarkerToMap;
+async function loadMine(){
+  try{const r=await fetch('/api/points?mine=1&limit=300');if(!r.ok)return;
+    (await r.json()).filter(p=>p.status!=='approved').forEach(_add)}catch(e){}
+}
+addMarkerToMap=function(p){
+  if(p.status==='approved'){                       // เคสอนุมัติแล้วให้มาจากชั้น cluster เท่านั้น
+    if(markers[p.id]){cluster.removeLayer(markers[p.id]);delete markers[p.id]}
+    return later(400);
+  }
+  _add(p);
+};
+fetchAndAddMarker=async function(){later(500)};    // มีเคสใหม่อนุมัติ → รีเฟรชมุมมอง ไม่โหลดทีละจุด
+})();
+
+</script></body></html>

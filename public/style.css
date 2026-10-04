@@ -1,0 +1,202 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap');
+
+/* =========================================================
+   THEME : กระทรวงการพัฒนาสังคมและความมั่นคงของมนุษย์ (ชมพู–แมเจนตา)
+   เน้นอ่านง่าย: ตัวอักษรใหญ่ขึ้น คอนทราสต์ผ่านเกณฑ์ WCAG AA
+   ========================================================= */
+:root{
+  --brand:#c2185b;      /* ปุ่ม/ลิงก์หลัก */
+  --brand2:#d81b60;     /* ปลายไล่เฉด (ตัวอักษรขาวยังอ่านชัด) */
+  --brand3:#ad1457;
+  --brand-dark:#8e1649; /* หัวข้อ/ข้อความเน้น */
+  --pink-light:#fce4ec;
+  --pink-soft:#fff1f6;
+  --bg:#fff5f8;
+  --card:#fff;
+  --text:#2b1a22;
+  --muted:#6b5560;
+  --line:#e6cfd9;
+  --ok:#16845d; --warn:#8a5d00; --bad:#c62838;
+  --radius:18px;
+  --shadow:0 10px 30px rgba(120,35,70,.12);
+  --font:'Noto Sans Thai','Sarabun','Leelawadee UI','Tahoma',system-ui,sans-serif;
+}
+
+/* ---------- BASE ---------- */
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:var(--font);font-size:16px;line-height:1.6;background:var(--bg);color:var(--text)}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline}
+:focus-visible{outline:3px solid #f06292;outline-offset:2px}
+summary{cursor:pointer;font-weight:600}
+
+/* ---------- BUTTON ---------- */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;cursor:pointer;
+  padding:13px 20px;border-radius:14px;font:inherit;font-weight:600;font-size:16px;color:#fff;
+  background:linear-gradient(135deg,var(--brand),var(--brand2));transition:.2s;
+  box-shadow:0 6px 16px rgba(194,24,91,.22)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(194,24,91,.32);text-decoration:none}
+.btn:disabled{opacity:.6;cursor:not-allowed;transform:none}
+.btn.ghost{background:#fbe3ec;color:var(--brand-dark);box-shadow:none}
+.btn.ok{background:linear-gradient(135deg,#16845d,#1f9a70)}
+.btn.bad{background:linear-gradient(135deg,#c62838,#dc4a58)}
+.btn.sm{padding:9px 15px;font-size:14px;width:auto;border-radius:10px}
+
+/* ---------- FORM ---------- */
+input,select,textarea{width:100%;padding:13px 14px;border:1.5px solid var(--line);border-radius:13px;
+  font:inherit;font-size:16px;background:#fff;color:var(--text);transition:.2s;outline:none}
+input:hover,select:hover,textarea:hover{border-color:#d49ab1}
+input:focus,select:focus,textarea:focus{border-color:var(--brand);box-shadow:0 0 0 4px rgba(194,24,91,.12)}
+input::placeholder,textarea::placeholder{color:#97828c}
+input[type=checkbox],input[type=radio]{width:auto;accent-color:var(--brand)}
+label{display:block;font-size:14.5px;font-weight:600;margin:0 0 6px;color:#4a2d39}
+.field{margin-bottom:16px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:560px){.grid2{grid-template-columns:1fr}}
+
+/* ---------- CARD / BADGE ---------- */
+.card{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px;margin-bottom:12px}
+.badge{display:inline-block;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:600}
+.b-pending{background:#fff1d1;color:#7a5200}
+.b-approved{background:#dcf5e9;color:#0b6b47}
+.b-rejected{background:#fde4e6;color:#a8232d}
+
+/* ---------- AUTH ---------- */
+.auth-wrap{min-height:100vh;display:grid;place-items:center;padding:20px;position:relative;overflow:hidden;
+  background-color:var(--brand-dark);
+  background:linear-gradient(135deg,rgba(116,20,61,.88),rgba(194,24,91,.74),rgba(233,30,99,.62)),
+    url('/images/pmd-background.png') center/cover no-repeat;   /* ไม่มีรูป = เห็นเฉพาะไล่เฉดสีชมพู */
+  background-attachment:fixed}
+.auth-wrap::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(circle at 15% 15%,rgba(255,255,255,.22),transparent 30%),
+             radial-gradient(circle at 85% 85%,rgba(255,255,255,.12),transparent 30%)}
+.auth-wrap::after{content:"";position:absolute;width:500px;height:500px;right:-180px;top:-180px;border-radius:50%;
+  background:rgba(255,255,255,.08);box-shadow:-180px 500px 0 rgba(255,255,255,.05);pointer-events:none}
+.auth-card{width:100%;max-width:480px;position:relative;z-index:2;
+  background:rgba(255,255,255,.94);                       /* ทึบขึ้น อ่านชัดบนพื้นชมพูเข้ม */
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.8);border-radius:24px;padding:30px 26px;
+  box-shadow:0 24px 60px rgba(80,10,40,.28);animation:rise .5s ease}
+@keyframes rise{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+
+.logo{width:88px;height:88px;margin:0 auto 14px;display:grid;place-items:center;background:#fff;border-radius:22px;
+  border:2px solid #f1d1dd;box-shadow:0 10px 28px rgba(120,30,70,.18);overflow:hidden}
+.logo img{width:100%;height:100%;object-fit:contain;padding:5px}
+.org{text-align:center;font-size:19px;font-weight:700;line-height:1.5;color:var(--brand-dark)}
+.org small{display:block;font-weight:400;color:var(--muted);font-size:14px;margin-top:8px}
+
+.tabs{display:flex;background:#f9e6ee;border-radius:14px;padding:5px;margin:20px 0 18px;flex-wrap:wrap;gap:2px}
+.tabs button{flex:1;border:0;background:transparent;padding:11px 10px;border-radius:10px;font:inherit;font-size:15px;
+  font-weight:600;color:var(--muted);cursor:pointer;transition:.2s;white-space:nowrap}
+.tabs button:hover{color:var(--brand)}
+.tabs button.on{background:#fff;color:var(--brand-dark);box-shadow:0 2px 8px rgba(120,30,70,.14)}
+
+.msg{padding:12px 14px;border-radius:12px;font-size:15px;margin-bottom:14px;display:none}
+.msg.err{background:#fde4e6;color:#a8232d;display:block}
+.msg.ok{background:#dcf5e9;color:#0b6b47;display:block}
+.foot{text-align:center;font-size:13px;color:var(--muted);margin-top:18px;line-height:1.7}
+
+/* ---------- TOPBAR / MAP ---------- */
+.topbar{position:fixed;top:0;left:0;right:0;height:60px;z-index:900;display:flex;align-items:center;gap:12px;padding:0 14px;
+  background:rgba(255,255,255,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+  border-bottom:3px solid var(--brand)}                  /* เส้นชมพูใต้แถบบน = เอกลักษณ์เดียวกันทุกหน้า */
+.topbar h1{font-size:16px;margin:0;font-weight:700;line-height:1.3;flex:1;color:var(--brand-dark)}
+.topbar h1 span{display:block;font-size:12px;color:var(--muted);font-weight:400}
+.avatar{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #fff;
+  box-shadow:0 2px 10px rgba(120,30,70,.2);cursor:pointer;background:#f4dce5}
+#map{position:fixed;inset:60px 0 0 0}
+.fab{position:fixed;right:18px;bottom:26px;z-index:800;padding:16px 22px;border-radius:999px;width:auto;
+  box-shadow:0 12px 30px rgba(194,24,91,.4);font-size:17px}
+
+/* แถบชิป: เลื่อนซ้าย-ขวาได้บนจอเล็ก ไม่ล้นจอ */
+.chip-bar{position:fixed;top:72px;left:50%;transform:translateX(-50%);z-index:800;display:flex;gap:8px;
+  max-width:calc(100vw - 20px);overflow-x:auto;padding:2px;scrollbar-width:none}
+.chip-bar::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;background:rgba(255,255,255,.97);border:1px solid var(--line);border-radius:999px;
+  padding:8px 15px;font-size:14px;font-weight:600;color:var(--brand-dark);white-space:nowrap;
+  box-shadow:0 4px 14px rgba(120,30,70,.12);cursor:pointer}
+select.chip{width:auto;max-width:150px;padding:8px 14px;font-size:14px;border:1px solid var(--line)}
+
+/* ---------- SHEET ---------- */
+.sheet{position:fixed;inset:0;z-index:1000;display:none;align-items:flex-end;justify-content:center;
+  background:rgba(55,10,30,.55);backdrop-filter:blur(3px)}
+.sheet.show{display:flex;animation:fade .2s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet-box{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;border-radius:24px 24px 0 0;
+  padding:8px 20px 26px;animation:up .3s cubic-bezier(.2,.8,.3,1)}
+@media(min-width:620px){.sheet{align-items:center}.sheet-box{border-radius:24px;max-height:88vh}}
+@keyframes up{from{transform:translateY(60px);opacity:.6}to{transform:none;opacity:1}}
+.handle{width:44px;height:5px;background:#e4cbd4;border-radius:9px;margin:8px auto 14px}
+.sheet-box h3{margin:0 0 16px;font-size:20px;color:var(--brand-dark)}
+.photo-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.photo-row img{width:76px;height:76px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
+
+/* ---------- TOAST ---------- */
+.toast{position:fixed;left:50%;top:76px;transform:translateX(-50%) translateY(-20px);z-index:2000;background:#572036;
+  color:#fff;padding:13px 22px;border-radius:14px;font-size:15px;font-weight:600;box-shadow:0 12px 30px rgba(80,10,40,.3);
+  opacity:0;transition:.3s;pointer-events:none;max-width:90vw}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{background:linear-gradient(135deg,#16845d,#1f9a70)}
+.toast.err{background:linear-gradient(135deg,#c62838,#dc4a58)}
+
+/* ---------- LEAFLET ---------- */
+.leaflet-popup-content-wrapper{border-radius:16px}
+.leaflet-popup-content{margin:14px 16px;font-family:var(--font);width:240px!important}
+.pop h4{margin:0 0 6px;font-size:16px;color:var(--brand-dark)}
+.pop p{margin:3px 0;font-size:13.5px;color:var(--muted)}
+.pin{display:grid;place-items:center;width:34px;height:34px;border-radius:50% 50% 50% 4px;transform:rotate(-45deg);
+  box-shadow:0 4px 12px rgba(80,10,40,.35);border:2.5px solid #fff;font-size:15px}
+.pin i{transform:rotate(45deg);font-style:normal}
+.leaflet-top.leaflet-right{margin-top:48px}
+.leaflet-control-layers{border-radius:14px!important;box-shadow:0 6px 18px rgba(80,10,40,.15)!important;
+  border:1px solid var(--line)!important;font-family:var(--font);font-size:14px}
+.leaflet-control-layers-expanded{padding:12px 14px!important}
+.leaflet-control-layers label{font-weight:500;margin:4px 0}
+
+/* ---------- ADMIN ---------- */
+.admin-wrap{max-width:1180px;margin:0 auto;padding:84px 16px 40px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px}
+.stat{background:#fff;border-radius:16px;padding:18px;box-shadow:var(--shadow);border-top:4px solid var(--brand)}
+.stat b{display:block;font-size:30px;color:var(--brand)}
+.stat span{font-size:14px;color:var(--muted)}
+.row{background:#fff;border-radius:16px;padding:16px;box-shadow:var(--shadow);margin-bottom:12px;display:flex;gap:14px;
+  align-items:flex-start;flex-wrap:wrap}
+.row .info{flex:1;min-width:220px;font-size:14.5px;line-height:1.8}
+.row .info b{font-size:16px}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start}
+#expBar select,#arSt{width:auto;min-width:150px;padding:9px 12px;font-size:14.5px}
+details.card summary{padding:2px 0}
+
+/* ---------- PDPA ---------- */
+.pdpa-box{margin-top:18px;padding:16px;border:1px solid #e3c3d1;border-radius:14px;
+  background:linear-gradient(135deg,#fff8fa,#fdeef4);color:#43303a;box-shadow:0 4px 14px rgba(120,30,70,.06)}
+.pdpa-title{font-size:16px;font-weight:700;color:var(--brand3);margin-bottom:12px}
+.pdpa-content{max-height:280px;overflow-y:auto;padding:12px 14px;background:#fff;border:1px solid #ead8df;
+  border-radius:9px;font-size:14px;line-height:1.75}
+.pdpa-content p{margin:0 0 10px}
+.pdpa-content strong{color:var(--brand-dark)}
+.pdpa-note{color:var(--muted);font-size:13px}
+.pdpa-consent{display:flex;align-items:flex-start;gap:10px;margin-top:14px;padding:12px;background:#fff;
+  border:1px solid #e0bfcd;border-radius:9px;cursor:pointer;font-size:14px;line-height:1.65;font-weight:500;transition:.2s}
+.pdpa-consent:hover{border-color:#d78ba7;background:#fffafd}
+.pdpa-consent input[type=checkbox]{width:20px;height:20px;min-width:20px;margin-top:2px;cursor:pointer}
+.pdpa-consent:has(input:focus-visible){outline:3px solid #f06292;outline-offset:2px}
+.pdpa-content::-webkit-scrollbar{width:8px}
+.pdpa-content::-webkit-scrollbar-track{background:#f9edf2;border-radius:10px}
+.pdpa-content::-webkit-scrollbar-thumb{background:#d9a0b6;border-radius:10px}
+.pdpa-content::-webkit-scrollbar-thumb:hover{background:var(--brand)}
+
+/* ---------- MOBILE ---------- */
+@media(max-width:600px){
+  .auth-wrap{padding:14px;background-attachment:scroll}
+  .auth-card{padding:24px 18px}
+  .logo{width:72px;height:72px}
+  .org{font-size:17px}
+  .pdpa-box{padding:12px}
+  .pdpa-content{max-height:240px;font-size:13.5px}
+  .chip-bar{left:10px;transform:none}
+  .fab{right:14px;bottom:20px}
+}
+
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

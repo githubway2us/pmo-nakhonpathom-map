@@ -1,0 +1,184 @@
+<!DOCTYPE html><html lang="th"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>หลังบ้านผู้ดูแลระบบ | พมจ.นครปฐม</title><link rel="stylesheet" href="/style.css">
+</head><body>
+<div class="topbar">
+  <div class="logo" style="width:38px;height:38px;border-radius:12px;font-size:18px;margin:0">🛡️</div>
+  <h1>หลังบ้านผู้ดูแลระบบ<span>สำนักงานพัฒนาสังคมและความมั่นคงของมนุษย์จังหวัดนครปฐม</span></h1>
+  <button class="btn sm ghost" onclick="location.href='/app.html'">แผนที่</button>
+  <button class="btn sm bad" id="out">ออก</button>
+</div>
+
+<div class="admin-wrap">
+  <div class="stats" id="stats"></div>
+  <div class="tabs" style="max-width:900px">
+    <button data-t="up" class="on">สมาชิกรออนุมัติ</button>
+    <button data-t="pp">พิกัดรออนุมัติ</button>
+    <button data-t="au">สมาชิกทั้งหมด</button>
+    <button data-t="ap">พิกัดทั้งหมด</button>
+    <button data-t="ar">สถิติรายพื้นที่</button>
+  </div>
+  <div id="expBar" style="display:none;gap:8px;flex-wrap:wrap;margin:12px 0">
+    <select id="expSt"><option value="">ทุกสถานะ</option><option value="approved">อนุมัติแล้ว</option>
+      <option value="pending">รออนุมัติ</option><option value="rejected">ไม่อนุมัติ</option></select>
+    <select id="expAmp"><option value="">ทุกอำเภอ</option></select>
+    <select id="expTam"><option value="">ทุกตำบล</option></select>
+    <button class="btn sm ok" id="exp">⬇️ Export Excel</button>
+  </div>
+  <div id="list"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $=s=>document.querySelector(s); let tab='up';
+const toast=(t,k='ok')=>{const e=$('#toast');e.textContent=t;e.className='toast show '+k;setTimeout(()=>e.className='toast',3000)};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const B={pending:'รออนุมัติ',approved:'อนุมัติแล้ว',rejected:'ไม่อนุมัติ'};
+const ava=u=>u.avatar||'https://api.dicebear.com/7.x/initials/svg?seed='+encodeURIComponent(u.nickname||u.firstName||'U');
+const areaTxt=p=>p.tambon
+  ? 'อ.'+esc(p.amphoe||'-')+' ต.'+esc(p.tambon)+(p.moo?' หมู่ '+esc(p.moo):'')+
+    ' <small>('+(p.areaSource==='boundary'?'ตามเขตแผนที่':'ผู้ใช้เลือก')+')</small>'
+  : '<span style="color:#b26a00">ยังไม่ระบุตำบล</span>';
+
+(async()=>{
+  const r=await fetch('/api/me'); if(!r.ok) return location.href='/';
+  const u=await r.json(); if(u.role!=='admin') return location.href='/app.html';
+  render();
+  const s=io();
+  s.on('user:pending',()=>{toast('🔔 มีสมาชิกใหม่รออนุมัติ');render()});
+  s.on('point:pending',()=>{toast('🔔 มีพิกัดใหม่รออนุมัติ');render()});
+})();
+
+document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on'); tab=b.dataset.t; $('#expSt').value=tab==='pp'?'pending':''; render();
+});
+
+const empty=()=>'<div class="card" style="text-align:center;color:#6b7a90;padding:46px">— ไม่มีรายการ —</div>';
+
+async function render(){
+  $('#expBar').style.display=(tab==='pp'||tab==='ap')?'flex':'none';
+  const st=await (await fetch('/api/admin/stats')).json();
+  $('#stats').innerHTML=
+    '<div class="stat"><b>'+st.pendingUsers+'</b><span>สมาชิกรออนุมัติ</span></div>'+
+    '<div class="stat"><b>'+st.approvedUsers+'</b><span>สมาชิกที่อนุมัติแล้ว</span></div>'+
+    '<div class="stat"><b>'+st.pendingPoints+'</b><span>พิกัดรออนุมัติ</span></div>'+
+    '<div class="stat"><b>'+st.approvedPoints+'</b><span>พิกัดที่เผยแพร่</span></div>';
+
+  if(tab==='ar') return renderArea();
+  if(tab==='up'||tab==='au'){
+    const q=tab==='up'?'?status=pending':'';
+    const us=await (await fetch('/api/admin/users'+q)).json();
+    $('#list').innerHTML = us.length ? us.map(u=>
+      '<div class="row">'+
+        '<img class="avatar" style="width:58px;height:58px" src="'+ava(u)+'">'+
+        '<div class="info"><b>'+esc(u.firstName)+' '+esc(u.lastName)+'</b> '+(u.nickname?'('+esc(u.nickname)+')':'')+
+          ' <span class="badge b-'+u.status+'">'+B[u.status]+'</span>'+(u.role==='admin'?' <span class="badge b-approved">ผู้ดูแล</span>':'')+'<br>'+
+          '🏢 '+esc(['other','อื่นๆ'].includes(u.affiliation)?u.affiliationOther:u.affiliation)+' • 📞 '+esc(u.phone)+'<br>'+
+          '👤 '+esc(u.username)+' • สมัคร '+esc(u.createdAt)+
+          (u.facebook?'<br>📘 '+esc(u.facebook):'')+(u.tiktok?' • 🎵 '+esc(u.tiktok):'')+
+          (u.lineId?' • 💚 '+esc(u.lineId):'')+(u.website?' • 🌐 '+esc(u.website):'')+
+        '</div>'+
+        '<div class="acts">'+
+          (u.status!=='approved'?'<button class="btn sm ok" onclick="su('+u.id+',\'approved\')">✓ อนุมัติ</button>':'')+
+          (u.status!=='rejected'&&u.role!=='admin'?'<button class="btn sm bad" onclick="su('+u.id+',\'rejected\')">✕ ปฏิเสธ</button>':'')+
+          (u.role!=='admin'?'<button class="btn sm ghost" onclick="du('+u.id+')">ลบ</button>':'')+
+        '</div>'+
+      '</div>').join('') : empty();
+  } else {
+    const q=tab==='pp'?'?status=pending':'';
+    const ps=await (await fetch('/api/admin/points'+q)).json();
+    $('#list').innerHTML = ps.length ? ps.map(p=>
+      '<div class="row">'+
+        '<div class="info"><b>'+esc(p.caseName)+'</b> <span class="badge b-'+p.status+'">'+B[p.status]+'</span><br>'+
+          '🏷️ '+esc(p.caseType==='อื่นๆ'?p.caseTypeOther:p.caseType)+'<br>'+
+          '👤 ผู้ดูแล: '+esc(p.caretakerName||'-')+' • 📞 '+esc(p.caretakerPhone||'-')+'<br>'+
+          '🏠 '+esc(p.address||'-')+'<br>📝 '+esc(p.note||'-')+'<br>'+
+          '📍 <a target="_blank" href="https://www.google.com/maps?q='+p.lat+','+p.lng+'">'+p.lat.toFixed(6)+', '+p.lng.toFixed(6)+'</a><br>'+
+          '🗺️ '+areaTxt(p)+'<br>'+
+          '🧑‍💼 บันทึกโดย '+esc(p.reporter.name)+' ('+esc(p.reporter.affiliation||'-')+') • '+esc(p.createdAt)+
+          '<div class="photo-row">'+p.photos.map(f=>'<a href="'+f+'" target="_blank"><img src="'+f+'"></a>').join('')+'</div>'+
+        '</div>'+
+        '<div class="acts">'+
+          (p.status!=='approved'?'<button class="btn sm ok" onclick="sp('+p.id+',\'approved\')">✓ อนุมัติ</button>':'')+
+          (p.status!=='rejected'?'<button class="btn sm bad" onclick="sp('+p.id+',\'rejected\')">✕ ไม่อนุมัติ</button>':'')+
+          '<button class="btn sm ghost" onclick="dp('+p.id+')">ลบ</button>'+
+        '</div>'+
+      '</div>').join('') : empty();
+  }
+}
+
+/* ---------- สถิติรายพื้นที่ ---------- */
+async function renderArea(){
+  const stt=$('#arSt')?$('#arSt').value:'approved';
+  const d=await (await fetch('/api/stats/area?status='+stt)).json();
+  const as=Object.entries(d.amphoes).sort((a,b)=>b[1].total-a[1].total);
+  const max=as[0]?as[0][1].total:1;
+  $('#list').innerHTML=
+   '<div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
+   '<select id="arSt" onchange="render()">'+['approved','pending','rejected'].map(s=>
+     '<option value="'+s+'"'+(s===stt?' selected':'')+'>'+B[s]+'</option>').join('')+'</select>'+
+   '<button class="btn sm ghost" onclick="bf()">เติมตำบลให้จุดเก่า</button></div>'+
+   (as.length ? as.map(([a,v])=>
+     '<details class="card"><summary><b>อ.'+esc(a)+'</b> — '+v.total+' จุด'+
+     '<div style="height:6px;background:#e5ebf3;border-radius:4px;margin-top:6px">'+
+     '<div style="height:6px;width:'+Math.round(v.total/max*100)+'%;background:#1f6feb;border-radius:4px"></div></div></summary>'+
+     Object.entries(v.tambons).sort((x,y)=>y[1].total-x[1].total).map(([t,tv])=>
+       '<div style="padding:6px 0;border-top:1px solid #eef2f7">ต.'+esc(t)+' <b>'+tv.total+'</b> '+
+       '<small style="color:#6b7a90">'+Object.entries(tv.types).map(([k,n])=>esc(k)+' '+n).join(' • ')+'</small></div>').join('')+
+     '</details>').join('') : empty());
+}
+async function bf(){
+  const r=await fetch('/api/admin/geo/backfill',{method:'POST'});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast('ตรวจ '+d.checked+' จุด เติมตำบลได้ '+d.filled+' จุด'); renderArea();
+}
+
+/* ---------- Export Excel ---------- */
+(async()=>{
+  try{const A=await (await fetch('/api/geo/admin')).json();
+    $('#expAmp').innerHTML+=Object.keys(A).map(a=>'<option>'+a+'</option>').join('');
+    $('#expAmp').onchange=e=>$('#expTam').innerHTML='<option value="">ทุกตำบล</option>'+
+      (A[e.target.value]||[]).map(t=>'<option>'+t+'</option>').join('');
+  }catch{}
+})();
+$('#exp').onclick=()=>{
+  const q=new URLSearchParams();
+  [['status','#expSt'],['amphoe','#expAmp'],['tambon','#expTam']].forEach(([k,s])=>{if($(s).value)q.set(k,$(s).value)});
+  location.href='/api/admin/export.xlsx?'+q;
+};
+
+async function su(id,status){
+  const r=await fetch('/api/admin/users/'+id+'/status',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast(status==='approved'?'✅ อนุมัติสมาชิกแล้ว':'ปฏิเสธสมาชิกแล้ว'); render();
+}
+async function du(id){
+  if(!confirm('ยืนยันลบสมาชิกนี้? พิกัดทั้งหมดของสมาชิกจะถูกลบด้วย')) return;
+  const r=await fetch('/api/admin/users/'+id,{method:'DELETE'});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast('ลบสมาชิกแล้ว (พิกัด '+d.removedPoints+' จุด)'); render();
+}
+async function sp(id,status){
+  let reason='';
+  if(status==='rejected') reason=prompt('เหตุผลที่ไม่อนุมัติ (ไม่บังคับ)')||'';
+  const r=await fetch('/api/admin/points/'+id+'/status',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({status,reason})});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast(status==='approved'?'✅ อนุมัติพิกัด — ขึ้นแผนที่เรียลไทม์แล้ว':'ไม่อนุมัติพิกัดแล้ว'); render();
+}
+async function dp(id){
+  if(!confirm('ยืนยันลบพิกัดนี้?')) return;
+  const r=await fetch('/api/admin/points/'+id,{method:'DELETE'});
+  const d=await r.json();
+  if(!r.ok) return toast(d.error,'err');
+  toast('ลบพิกัดแล้ว'); render();
+}
+$('#out').onclick=async()=>{await fetch('/api/logout',{method:'POST'});location.href='/'};
+</script></body></html>
